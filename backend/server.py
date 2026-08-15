@@ -1,9 +1,10 @@
-"""Hyderabad Traffic Digital Twin - simulation-first operations API."""
+"""Hyderabad Traffic Digital Twin - operations API (metropolitan scale)."""
 import asyncio
 import logging
 import math
 import os
 import random
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,98 +25,204 @@ logger = logging.getLogger("hyderabad-twin")
 
 mongo_client = AsyncIOMotorClient(os.environ["MONGO_URL"], serverSelectionTimeoutMS=500)
 db = mongo_client[os.environ["DB_NAME"]]
-app = FastAPI(title="Hyderabad Traffic Digital Twin", version="1.0.0", docs_url="/api/docs")
+app = FastAPI(title="Hyderabad Traffic Digital Twin", version="2.0.0", docs_url="/api/docs")
 router = APIRouter(prefix="/api")
 
-ZONE_NAMES = [
-    "Gachibowli", "Financial District", "HITEC City", "Madhapur", "Jubilee Hills",
-    "Banjara Hills", "Kukatpally", "Miyapur", "Secunderabad", "Uppal", "LB Nagar",
-    "Shamshabad", "Airport Corridor", "ORR East", "ORR West", "Tank Bund",
+# ------------------------------------------------------------
+# Metropolitan-scale zone graph (coords are 3D world units, ~1 unit = 400 m)
+# ------------------------------------------------------------
+ZONES: List[Dict[str, Any]] = [
+    {"id": "z-gachi", "name": "Gachibowli", "pos": [-18, 0, 6], "category": "IT"},
+    {"id": "z-findist", "name": "Financial District", "pos": [-22, 0, 2], "category": "IT"},
+    {"id": "z-hitec", "name": "HITEC City", "pos": [-13, 0, 8], "category": "IT"},
+    {"id": "z-madhapur", "name": "Madhapur", "pos": [-9, 0, 6], "category": "IT"},
+    {"id": "z-jubilee", "name": "Jubilee Hills", "pos": [-4, 0, 4], "category": "commercial"},
+    {"id": "z-banjara", "name": "Banjara Hills", "pos": [0, 0, 2], "category": "commercial"},
+    {"id": "z-kphb", "name": "Kukatpally", "pos": [-10, 0, 16], "category": "residential"},
+    {"id": "z-miyapur", "name": "Miyapur", "pos": [-20, 0, 18], "category": "residential"},
+    {"id": "z-secun", "name": "Secunderabad", "pos": [6, 0, 10], "category": "transit"},
+    {"id": "z-uppal", "name": "Uppal", "pos": [16, 0, 6], "category": "residential"},
+    {"id": "z-lbnagar", "name": "LB Nagar", "pos": [12, 0, -6], "category": "residential"},
+    {"id": "z-shams", "name": "Shamshabad", "pos": [-2, 0, -20], "category": "airport"},
+    {"id": "z-airport", "name": "Airport Corridor", "pos": [-4, 0, -12], "category": "airport"},
+    {"id": "z-tank", "name": "Tank Bund", "pos": [4, 0, 6], "category": "landmark"},
+    {"id": "z-charminar", "name": "Charminar", "pos": [8, 0, 0], "category": "landmark"},
+    {"id": "z-mehdi", "name": "Mehdipatnam", "pos": [-2, 0, -2], "category": "commercial"},
+    {"id": "z-begum", "name": "Begumpet", "pos": [2, 0, 6], "category": "transit"},
+    {"id": "z-ameerpet", "name": "Ameerpet", "pos": [-2, 0, 6], "category": "transit"},
+    {"id": "z-kondapur", "name": "Kondapur", "pos": [-14, 0, 12], "category": "IT"},
+    {"id": "z-nagole", "name": "Nagole", "pos": [18, 0, 0], "category": "transit"},
+    {"id": "z-orr-e", "name": "ORR East Gate", "pos": [22, 0, 4], "category": "highway"},
+    {"id": "z-orr-w", "name": "ORR West Gate", "pos": [-26, 0, 10], "category": "highway"},
+    {"id": "z-nh44", "name": "NH44 Junction", "pos": [6, 0, 20], "category": "highway"},
+    {"id": "z-nh65", "name": "NH65 Junction", "pos": [-24, 0, -4], "category": "highway"},
 ]
-ZONE_POINTS = [(-5, 1), (-4, 0), (-2, 2), (-1, 1), (0, 0), (1, -1), (-3, 0), (-4, 2),
-               (2, 3), (3, 1), (3, -1), (0, -4), (-1, -4), (5, 1), (-6, 1), (1, 2)]
+ZONE_BY_ID = {z["id"]: z for z in ZONES}
+ZONE_BY_NAME = {z["name"]: z for z in ZONES}
 
-state: Dict[str, Any] = {
-    "running": True, "tick": 0, "scenario": "Office hours", "weather": "Clear",
-    "updated_at": datetime.now(timezone.utc).isoformat(), "history": [], "clients": set(),
-}
+# Road hierarchy: highway (6 lanes), arterial (4), local (2), metro viaduct
+ROAD_EDGES = [
+    ("z-orr-w", "z-miyapur", "ORR North-West", "highway", 6, True),
+    ("z-miyapur", "z-kphb", "ORR North", "highway", 6, True),
+    ("z-kphb", "z-secun", "ORR North-East", "highway", 6, True),
+    ("z-secun", "z-orr-e", "ORR East", "highway", 6, True),
+    ("z-orr-e", "z-nagole", "ORR East Ramp", "highway", 6, True),
+    ("z-nagole", "z-lbnagar", "ORR South-East", "highway", 6, True),
+    ("z-lbnagar", "z-shams", "ORR South", "highway", 6, True),
+    ("z-shams", "z-airport", "Airport Expressway", "highway", 8, True),
+    ("z-airport", "z-mehdi", "PVNR Expressway", "highway", 6, True),
+    ("z-mehdi", "z-findist", "PVNR West", "highway", 6, True),
+    ("z-findist", "z-orr-w", "ORR West Ramp", "highway", 6, True),
+    ("z-nh44", "z-secun", "NH44 Approach", "highway", 6, False),
+    ("z-nh65", "z-findist", "NH65 Approach", "highway", 6, False),
+    ("z-gachi", "z-findist", "Nanakramguda Link", "arterial", 4, False),
+    ("z-gachi", "z-hitec", "Gachibowli Main", "arterial", 4, False),
+    ("z-hitec", "z-madhapur", "Cyberabad Road", "arterial", 4, True),
+    ("z-madhapur", "z-jubilee", "Madhapur-Jubilee", "arterial", 4, False),
+    ("z-jubilee", "z-banjara", "Road No.36", "arterial", 4, False),
+    ("z-banjara", "z-tank", "Necklace Road", "arterial", 4, False),
+    ("z-tank", "z-secun", "Tank Bund Rd", "arterial", 4, False),
+    ("z-kphb", "z-ameerpet", "KPHB-Ameerpet", "arterial", 4, False),
+    ("z-ameerpet", "z-begum", "SR Nagar", "arterial", 4, False),
+    ("z-begum", "z-tank", "Begumpet Main", "arterial", 4, False),
+    ("z-uppal", "z-nagole", "Uppal Link", "arterial", 4, False),
+    ("z-uppal", "z-secun", "Uppal-Secun", "arterial", 4, False),
+    ("z-lbnagar", "z-mehdi", "Inner Ring", "arterial", 4, False),
+    ("z-kondapur", "z-gachi", "Kondapur Junction", "arterial", 4, False),
+    ("z-kondapur", "z-hitec", "Kondapur Link", "arterial", 4, False),
+    ("z-charminar", "z-mehdi", "Old City", "local", 2, False),
+    ("z-charminar", "z-tank", "Purani Haveli", "local", 2, False),
+    ("z-jubilee", "z-ameerpet", "Yousufguda", "local", 2, False),
+    # metro corridors (viaducts)
+    ("z-miyapur", "z-kphb", "Metro Red Line", "metro", 2, True),
+    ("z-kphb", "z-ameerpet", "Metro Red Line", "metro", 2, True),
+    ("z-ameerpet", "z-secun", "Metro Blue Line", "metro", 2, True),
+    ("z-nagole", "z-uppal", "Metro Blue Line", "metro", 2, True),
+    ("z-hitec", "z-madhapur", "Metro Green Line", "metro", 2, True),
+    ("z-madhapur", "z-ameerpet", "Metro Green Line", "metro", 2, True),
+]
 
 def make_roads() -> List[Dict[str, Any]]:
     roads = []
-    edges = [(0, 1, "ORR West", 4), (1, 2, "Nanakramguda Link", 3), (2, 3, "Raidurg Link", 4),
-             (3, 4, "Madhapur Main", 3), (4, 5, "Banjara Hills Rd", 2), (5, 6, "Jubilee Hills Link", 3),
-             (6, 7, "KPHB - Miyapur", 4), (4, 8, "Necklace Road", 3), (8, 9, "Uppal Main", 4),
-             (9, 10, "LB Nagar Main", 3), (10, 11, "Airport Corridor", 5), (11, 12, "RGIA Express", 5),
-             (12, 13, "ORR South", 5), (13, 14, "ORR East", 5), (8, 15, "Metro Blue Line", 2),
-             (15, 4, "Metro Blue Line", 2), (4, 8, "NH65", 4), (0, 6, "Financial District Link", 3)]
-    for index, (a, b, name, lanes) in enumerate(edges):
-        roads.append({"id": f"road-{index+1}", "name": name, "from_zone": ZONE_NAMES[a], "to_zone": ZONE_NAMES[b],
-                      "from": ZONE_POINTS[a], "to": ZONE_POINTS[b], "lanes": lanes,
-                      "type": "metro" if "Metro" in name else ("flyover" if "ORR" in name else "arterial"),
-                      "congestion": round(38 + (index * 9) % 51, 1), "speed": round(18 + (index * 7) % 35, 1)})
+    for idx, (a, b, name, rtype, lanes, elevated) in enumerate(ROAD_EDGES):
+        za, zb = ZONE_BY_ID[a], ZONE_BY_ID[b]
+        cong = round(28 + (idx * 13) % 63, 1)
+        roads.append({
+            "id": f"road-{idx+1:03d}", "name": name, "type": rtype,
+            "from_id": a, "to_id": b,
+            "from": [za["pos"][0], za["pos"][2]], "to": [zb["pos"][0], zb["pos"][2]],
+            "from_name": za["name"], "to_name": zb["name"],
+            "lanes": lanes, "elevated": elevated,
+            "congestion": cong,
+            "speed": round(max(15, 60 - cong * 0.5), 1),
+            "length_km": round(math.hypot(zb["pos"][0]-za["pos"][0], zb["pos"][2]-za["pos"][2]) * 0.4, 2),
+        })
     return roads
 
 ROADS = make_roads()
-VEHICLE_TYPES = [("car", "Cars", "#00f3ff"), ("two-wheeler", "Two-wheelers", "#58a6ff"),
-                 ("bus", "Buses", "#ffb703"), ("truck", "Trucks", "#ff6b6b"),
-                 ("emergency", "Emergency", "#ff0055"), ("metro", "Metro", "#00ff66")]
+ROAD_BY_ID = {r["id"]: r for r in ROADS}
 
-def make_vehicles() -> List[Dict[str, Any]]:
+VEHICLE_CATEGORIES = [
+    ("sedan", "Sedan", "#00d9ff", 22, 0.36),
+    ("suv", "SUV", "#4dd6ff", 12, 0.30),
+    ("hatchback", "Hatchback", "#7bd9ff", 18, 0.24),
+    ("bus", "Bus", "#ffb703", 6, 0.10),
+    ("truck", "Truck", "#ff9a3c", 5, 0.09),
+    ("two_wheeler", "Two-wheeler", "#58a6ff", 28, 0.30),
+    ("ambulance", "Ambulance", "#ff2050", 1, 0.01),
+    ("police", "Police", "#3d5aff", 1, 0.005),
+    ("fire", "Fire engine", "#ff5f10", 1, 0.005),
+    ("metro", "Metro", "#00ff88", 4, 0.02),
+]
+
+def make_vehicles(total: int = 240) -> List[Dict[str, Any]]:
     vehicles = []
-    for index in range(112):
-        kind, label, color = VEHICLE_TYPES[index % len(VEHICLE_TYPES)]
-        road = ROADS[index % len(ROADS)]
-        progress = (index * 0.071) % 1
-        vehicles.append({"id": f"veh-{index+1:03d}", "type": kind, "label": label, "color": color,
-                         "road_id": road["id"], "progress": progress, "speed": round(18 + (index * 3) % 38, 1),
-                         "priority": kind == "emergency", "status": "moving"})
+    weights = [w for *_ , w in VEHICLE_CATEGORIES if w > 0.005]
+    pool = []
+    for kind, label, color, count, _ in VEHICLE_CATEGORIES:
+        pool.extend([(kind, label, color)] * count)
+    for i in range(total):
+        kind, label, color = pool[i % len(pool)]
+        candidates = [r for r in ROADS if (kind == "metro") == (r["type"] == "metro")]
+        if not candidates:
+            candidates = ROADS
+        road = candidates[i % len(candidates)]
+        lane = i % max(1, road["lanes"] // 2)
+        direction = 1 if i % 2 == 0 else -1
+        base_speed = {"metro": 55, "bus": 32, "truck": 34, "ambulance": 58, "police": 62,
+                      "fire": 48, "two_wheeler": 44, "sedan": 46, "suv": 40, "hatchback": 42}[kind]
+        vehicles.append({
+            "id": f"veh-{i+1:04d}", "type": kind, "label": label, "color": color,
+            "road_id": road["id"], "lane": lane, "direction": direction,
+            "progress": (i * 0.0173) % 1,
+            "speed": round(base_speed + random.uniform(-4, 4), 1),
+            "target_speed": base_speed, "priority": kind in {"ambulance", "police", "fire"},
+            "status": "moving",
+        })
     return vehicles
 
 VEHICLES = make_vehicles()
+
 INCIDENTS = [
     {"id": "INC-2401", "type": "Accident", "severity": "critical", "location": "HITEC City Flyover",
-     "status": "active", "age": "04 min", "impact": "2.1 km queue", "color": "#ff0055"},
+     "status": "active", "age": "04 min", "impact": "2.1 km queue", "color": "#ff0055",
+     "assigned": "Traffic Unit 12", "eta": "07 min"},
     {"id": "INC-2398", "type": "Rain cell", "severity": "moderate", "location": "Airport Corridor",
-     "status": "monitoring", "age": "11 min", "impact": "Visibility 68%", "color": "#ffb703"},
+     "status": "monitoring", "age": "11 min", "impact": "Visibility 68%", "color": "#ffb703",
+     "assigned": "Weather Ops", "eta": "—"},
     {"id": "INC-2394", "type": "Road closure", "severity": "high", "location": "Tank Bund North",
-     "status": "active", "age": "18 min", "impact": "Diversion active", "color": "#ff6b6b"},
+     "status": "active", "age": "18 min", "impact": "Diversion active", "color": "#ff6b6b",
+     "assigned": "Patrol 07", "eta": "22 min"},
 ]
+
+state: Dict[str, Any] = {
+    "running": True, "tick": 0, "scenario": "Office hours", "weather": "Clear",
+    "time_of_day": "evening",
+    "updated_at": datetime.now(timezone.utc).isoformat(),
+    "history": [], "corridors": [], "clients": set(),
+    "layers": {"traffic": True, "heatmap": True, "incidents": True, "weather": True,
+               "corridors": True, "metro": True, "drone": False, "buildings": True},
+    "convoy": None,
+    "started_at": time.time(),
+}
 
 HYDERABAD_COORDS = {"lat": 17.3850, "lon": 78.4867}
 
 def live_enabled() -> bool:
-    return os.environ.get("TWIN_LIVE_ENABLED", "false").lower() == "true"
+    return bool(os.environ.get("TOMTOM_API_KEY")) or bool(os.environ.get("OPENWEATHER_API_KEY"))
 
 def live_status() -> Dict[str, Any]:
-    tomtom_ready = bool(os.environ.get("TOMTOM_API_KEY"))
-    weather_ready = bool(os.environ.get("OPENWEATHER_API_KEY"))
-    return {"enabled": live_enabled(), "feeds": {
-        "traffic": {"provider": "TomTom", "configured": tomtom_ready, "live": live_enabled() and tomtom_ready, "fallback": not (live_enabled() and tomtom_ready)},
-        "weather": {"provider": "OpenWeather", "configured": weather_ready, "live": live_enabled() and weather_ready, "fallback": not (live_enabled() and weather_ready)},
-        "cctv": {"provider": "Authority VMS / ONVIF", "configured": False, "live": False, "fallback": True},
-        "signals": {"provider": "Authority signal API", "configured": False, "live": False, "fallback": True},
-        "dispatch": {"provider": "Authority CAD", "configured": False, "live": False, "fallback": True},
+    tt = bool(os.environ.get("TOMTOM_API_KEY"))
+    ow = bool(os.environ.get("OPENWEATHER_API_KEY"))
+    now = datetime.now(timezone.utc).isoformat()
+    return {"enabled": live_enabled(), "last_update": now, "feeds": {
+        "traffic": {"provider": "TomTom", "configured": tt, "live": tt, "fallback": not tt, "health": "nominal" if tt else "seeded", "last_update": now},
+        "weather": {"provider": "OpenWeather", "configured": ow, "live": ow, "fallback": not ow, "health": "nominal" if ow else "seeded", "last_update": now},
+        "cctv": {"provider": "Authority VMS / ONVIF", "configured": False, "live": False, "fallback": True, "health": "seeded", "last_update": now},
+        "signals": {"provider": "Authority signal API", "configured": False, "live": False, "fallback": True, "health": "seeded", "last_update": now},
+        "dispatch": {"provider": "Authority CAD", "configured": False, "live": False, "fallback": True, "health": "seeded", "last_update": now},
     }}
 
 async def fetch_tomtom_flow() -> Optional[Dict[str, Any]]:
     key = os.environ.get("TOMTOM_API_KEY")
-    if not live_enabled() or not key:
+    if not key:
         return None
     url = "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json"
     params = {"point": f"{HYDERABAD_COORDS['lat']},{HYDERABAD_COORDS['lon']}", "unit": "KMPH", "key": key}
     try:
         async with httpx.AsyncClient(timeout=4.0) as http:
-            response = await http.get(url, params=params, headers={"TomTom-Api-Key": key})
+            response = await http.get(url, params=params)
             response.raise_for_status()
             data = response.json().get("flowSegmentData", {})
-            return {"current_speed": data.get("currentSpeed"), "free_flow_speed": data.get("freeFlowSpeed"), "confidence": data.get("confidence"), "provider": "TomTom", "live": True}
+            return {"current_speed": data.get("currentSpeed"), "free_flow_speed": data.get("freeFlowSpeed"),
+                    "confidence": data.get("confidence"), "provider": "TomTom", "live": True}
     except Exception as exc:
-        logger.warning("TomTom adapter unavailable; retaining seeded traffic: %s", exc)
+        logger.warning("TomTom adapter unavailable; retaining seeded: %s", exc)
         return None
 
 async def fetch_openweather() -> Optional[Dict[str, Any]]:
     key = os.environ.get("OPENWEATHER_API_KEY")
-    if not live_enabled() or not key:
+    if not key:
         return None
     url = "https://api.openweathermap.org/data/2.5/weather"
     params = {"lat": HYDERABAD_COORDS["lat"], "lon": HYDERABAD_COORDS["lon"], "appid": key, "units": "metric"}
@@ -124,27 +231,44 @@ async def fetch_openweather() -> Optional[Dict[str, Any]]:
             response = await http.get(url, params=params)
             response.raise_for_status()
             data = response.json()
-            return {"condition": data.get("weather", [{}])[0].get("main", "Clear"), "temperature": round(data.get("main", {}).get("temp", 29)), "humidity": data.get("main", {}).get("humidity", 52), "visibility": round(data.get("visibility", 9600) / 100), "provider": "OpenWeather", "live": True}
+            return {"condition": data.get("weather", [{}])[0].get("main", "Clear"),
+                    "temperature": round(data.get("main", {}).get("temp", 29)),
+                    "humidity": data.get("main", {}).get("humidity", 52),
+                    "visibility": round(data.get("visibility", 9600) / 100),
+                    "provider": "OpenWeather", "live": True}
     except Exception as exc:
-        logger.warning("OpenWeather adapter unavailable; retaining seeded weather: %s", exc)
+        logger.warning("OpenWeather adapter unavailable; retaining seeded: %s", exc)
         return None
 
 def metrics() -> Dict[str, Any]:
     tick = state["tick"]
     rain = state["weather"] == "Rainstorm"
-    congestion = max(28, min(94, 61 + math.sin(tick / 9) * 7 + (8 if rain else 0)))
-    avg_speed = max(17, round(42 - congestion * 0.27, 1))
-    return {"active_vehicles": len(VEHICLES) + (tick % 7), "average_speed": avg_speed,
-            "congestion_index": round(congestion, 1), "air_quality": 74 if rain else 62,
-            "weather": state["weather"], "active_incidents": len([i for i in INCIDENTS if i["status"] != "resolved"]),
+    congestion = max(28, min(94, 58 + math.sin(tick / 9) * 8 + (10 if rain else 0)))
+    avg_speed = max(16, round(46 - congestion * 0.3, 1))
+    return {"active_vehicles": len(VEHICLES) + (tick % 9),
+            "average_speed": avg_speed, "congestion_index": round(congestion, 1),
+            "air_quality": 78 if rain else 66, "weather": state["weather"],
+            "active_incidents": len([i for i in INCIDENTS if i["status"] != "resolved"]),
             "emergency_response": "GREEN CORRIDOR READY", "simulation_tick": tick,
-            "updated_at": state["updated_at"]}
+            "metro_status": "ALL LINES OPERATIONAL", "updated_at": state["updated_at"]}
+
+def heatmap_snapshot() -> List[Dict[str, Any]]:
+    out = []
+    for road in ROADS:
+        c = road["congestion"]
+        band = "green" if c < 40 else "yellow" if c < 60 else "orange" if c < 78 else "red"
+        pulse = c > 88
+        out.append({"road_id": road["id"], "saturation": c, "band": band, "pulse": pulse,
+                    "lanes": road["lanes"], "type": road["type"]})
+    return out
 
 def snapshot() -> Dict[str, Any]:
-    m = metrics()
-    return {"metrics": m, "roads": ROADS, "vehicles": VEHICLES[:72], "incidents": INCIDENTS,
-            "scenario": state["scenario"], "weather": state["weather"], "tick": state["tick"]}
+    return {"metrics": metrics(), "roads": ROADS, "vehicles": VEHICLES,
+            "incidents": INCIDENTS, "scenario": state["scenario"], "weather": state["weather"],
+            "time_of_day": state["time_of_day"], "tick": state["tick"], "layers": state["layers"],
+            "heatmap": heatmap_snapshot(), "convoy": state["convoy"]}
 
+# --- Pydantic models ---
 class IncidentCreate(BaseModel):
     type: str = "Accident"
     location: str
@@ -155,6 +279,7 @@ class SimulationCommand(BaseModel):
     running: Optional[bool] = None
     scenario: Optional[str] = None
     weather: Optional[str] = None
+    time_of_day: Optional[str] = None
 
 class AssistantRequest(BaseModel):
     message: str
@@ -164,13 +289,31 @@ class RouteRequest(BaseModel):
     destination: str
     vehicle_type: str = "Ambulance"
 
+class ConvoyRequest(BaseModel):
+    waypoints: List[str] = Field(default_factory=list)
+    vehicle_type: str = "VIP convoy"
+    dignitary: str = "Chief Minister"
+    priority: str = "highest"
+
+class LayerToggle(BaseModel):
+    layer: str
+    enabled: bool
+
+class SignalCommand(BaseModel):
+    road_id: str
+    green_duration: int = 60
+    mode: str = "adaptive"  # adaptive | manual | override
+
+# --- Routes ---
 @router.get("/")
 async def root():
-    return {"name": "Hyderabad Traffic Digital Twin", "status": "operational", "version": "1.0.0"}
+    return {"name": "Hyderabad Traffic Digital Twin", "status": "operational", "version": "2.0.0"}
 
 @router.get("/health")
 async def health():
-    return {"status": "ok", "service": "traffic-twin-api", "simulation": state["running"], "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {"status": "ok", "service": "traffic-twin-api", "simulation": state["running"],
+            "uptime_seconds": round(time.time() - state["started_at"], 1),
+            "timestamp": datetime.now(timezone.utc).isoformat()}
 
 @router.get("/overview")
 async def overview():
@@ -182,7 +325,7 @@ async def live_feed_status():
 
 @router.get("/zones")
 async def zones():
-    return [{"id": f"zone-{i+1}", "name": name, "position": ZONE_POINTS[i], "status": "monitored"} for i, name in enumerate(ZONE_NAMES)]
+    return ZONES
 
 @router.get("/roads")
 async def roads():
@@ -191,6 +334,21 @@ async def roads():
 @router.get("/vehicles")
 async def vehicles():
     return VEHICLES
+
+@router.get("/heatmap")
+async def heatmap():
+    return {"generated_at": datetime.now(timezone.utc).isoformat(), "segments": heatmap_snapshot()}
+
+@router.get("/layers")
+async def layers_get():
+    return state["layers"]
+
+@router.post("/layers")
+async def layers_set(cmd: LayerToggle):
+    if cmd.layer not in state["layers"]:
+        raise HTTPException(status_code=404, detail="Unknown layer")
+    state["layers"][cmd.layer] = cmd.enabled
+    return state["layers"]
 
 @router.get("/traffic")
 async def traffic():
@@ -205,7 +363,9 @@ async def incidents():
 
 @router.post("/incidents")
 async def create_incident(input_data: IncidentCreate):
-    item = {"id": f"INC-{random.randint(2402, 2999)}", **input_data.model_dump(), "status": "active", "age": "now", "color": "#ff0055"}
+    item = {"id": f"INC-{random.randint(2402, 2999)}", **input_data.model_dump(),
+            "status": "active", "age": "now", "color": "#ff0055",
+            "assigned": "Traffic Unit " + str(random.randint(1, 24)), "eta": f"{random.randint(4, 22)} min"}
     INCIDENTS.insert(0, item)
     return item
 
@@ -225,16 +385,40 @@ async def predictions():
         {"label": "30 min", "value": round(min(98, current + 8.2), 1), "confidence": 88, "trend": "up"},
         {"label": "60 min", "value": round(max(22, current - 3.4), 1), "confidence": 76, "trend": "down"},
     ], "recommendation": "Stage a green wave from Gachibowli to Secunderabad before 18:45.",
-        "bottleneck": "HITEC City Flyover", "spread_probability": 68}
+        "bottleneck": "HITEC City Flyover", "spread_probability": 68,
+        "travel_time": {"HITEC → Airport": "38 min", "Miyapur → Secunderabad": "26 min", "Uppal → Financial District": "42 min"},
+        "signal_recommendations": [
+            {"corridor": "Ameerpet ↔ Begumpet", "action": "Extend green +12s", "expected_gain": "-14% queue"},
+            {"corridor": "Uppal Ring", "action": "Adaptive coordination", "expected_gain": "-9% queue"},
+        ]}
 
 @router.get("/analytics/trend")
 async def analytics_trend():
-    return [{"time": f"{16 + (i // 2)}:{30 if i % 2 else '00'}", "congestion": round(48 + i * 2.1 + math.sin(i) * 4, 1), "speed": round(43 - i * 0.9 + math.cos(i) * 2, 1)} for i in range(12)]
+    return [{"time": f"{16 + (i // 2)}:{30 if i % 2 else '00'}",
+             "congestion": round(48 + i * 2.1 + math.sin(i) * 4, 1),
+             "speed": round(43 - i * 0.9 + math.cos(i) * 2, 1),
+             "incidents": max(0, round(3 + math.sin(i / 2) * 2))} for i in range(12)]
+
+@router.get("/analytics/zones")
+async def analytics_zones():
+    out = []
+    for i, z in enumerate(ZONES[:16]):
+        base = 45 + (i * 7) % 40
+        out.append({"zone": z["name"], "congestion": base, "speed": round(56 - base * 0.4, 1),
+                    "vehicles": 60 + (i * 11) % 180, "category": z["category"]})
+    return out
+
+@router.get("/analytics/peak-hours")
+async def analytics_peak():
+    return [{"hour": f"{h:02d}:00", "index": round(28 + 45 * math.exp(-((h-9)**2)/8) + 55 * math.exp(-((h-18)**2)/6), 1)} for h in range(6, 23)]
 
 @router.get("/weather")
 async def weather():
-    seeded = {"condition": state["weather"], "temperature": 29, "humidity": 68 if state["weather"] == "Rainstorm" else 52,
-              "visibility": 68 if state["weather"] == "Rainstorm" else 96, "impact": "Moderate traffic drag" if state["weather"] == "Rainstorm" else "Nominal", "provider": "seeded simulation", "live": False}
+    seeded = {"condition": state["weather"], "temperature": 29,
+              "humidity": 68 if state["weather"] == "Rainstorm" else 52,
+              "visibility": 68 if state["weather"] == "Rainstorm" else 96,
+              "impact": "Moderate traffic drag" if state["weather"] == "Rainstorm" else "Nominal",
+              "provider": "seeded simulation", "live": False}
     return await fetch_openweather() or seeded
 
 @router.post("/simulation/control")
@@ -245,27 +429,114 @@ async def simulation_control(command: SimulationCommand):
         state["scenario"] = command.scenario
     if command.weather:
         state["weather"] = command.weather
-    return {"running": state["running"], "scenario": state["scenario"], "weather": state["weather"]}
+    if command.time_of_day:
+        state["time_of_day"] = command.time_of_day
+    return {"running": state["running"], "scenario": state["scenario"],
+            "weather": state["weather"], "time_of_day": state["time_of_day"]}
 
 @router.get("/simulation/status")
 async def simulation_status():
-    return {"running": state["running"], "tick": state["tick"], "scenario": state["scenario"], "weather": state["weather"], "interval_seconds": 2}
+    return {"running": state["running"], "tick": state["tick"], "scenario": state["scenario"],
+            "weather": state["weather"], "time_of_day": state["time_of_day"], "interval_seconds": 2}
 
 @router.get("/replay")
 async def replay():
     return state["history"][-30:]
 
+@router.get("/replay/corridors")
+async def replay_corridors():
+    return [{"route_id": c["route_id"], "recorded_at": c["recorded_at"], "vehicle_type": c["vehicle_type"],
+             "origin": c["origin"], "destination": c["destination"], "eta_minutes": c["eta_minutes"],
+             "frames": len(c["frames"])} for c in state["corridors"][-30:][::-1]]
+
+@router.get("/replay/corridors/{route_id}")
+async def replay_corridor(route_id: str):
+    for c in state["corridors"]:
+        if c["route_id"] == route_id:
+            return c
+    raise HTTPException(status_code=404, detail="Corridor not found")
+
 @router.post("/emergency/routes")
 async def emergency_route(input_data: RouteRequest):
     eta = 7 + (len(input_data.origin) + len(input_data.destination)) % 9
-    return {"route_id": f"ROUTE-{uuid.uuid4().hex[:6].upper()}", "origin": input_data.origin,
-            "destination": input_data.destination, "vehicle_type": input_data.vehicle_type, "eta_minutes": eta,
-            "distance_km": round(4.2 + eta * 0.74, 1), "green_corridor": True,
-            "signals_optimized": 12, "status": "DISPATCHED"}
+    route_id = f"ROUTE-{uuid.uuid4().hex[:6].upper()}"
+    # Approximate waypoints from zone names if present
+    o = ZONE_BY_NAME.get(input_data.origin) or {"pos": [0, 0, 0]}
+    d = ZONE_BY_NAME.get(input_data.destination) or {"pos": [4, 0, 4]}
+    waypoints = [o["pos"], [(o["pos"][0]+d["pos"][0])/2, 0, (o["pos"][2]+d["pos"][2])/2], d["pos"]]
+    corridor = {"route_id": route_id, "recorded_at": datetime.now(timezone.utc).isoformat(),
+                "origin": input_data.origin, "destination": input_data.destination,
+                "vehicle_type": input_data.vehicle_type, "eta_minutes": eta,
+                "distance_km": round(4.2 + eta * 0.74, 1), "green_corridor": True,
+                "signals_optimized": 12, "status": "DISPATCHED", "waypoints": waypoints,
+                "frames": [{"tick": state["tick"] + k, "progress": k / 12} for k in range(13)]}
+    state["corridors"].append(corridor)
+    if len(state["corridors"]) > 30:
+        state["corridors"] = state["corridors"][-30:]
+    return corridor
+
+@router.post("/convoy/start")
+async def convoy_start(input_data: ConvoyRequest):
+    if not input_data.waypoints:
+        input_data.waypoints = ["Financial District", "HITEC City", "Jubilee Hills", "Secunderabad"]
+    pts = [ZONE_BY_NAME[w]["pos"] for w in input_data.waypoints if w in ZONE_BY_NAME]
+    if not pts:
+        raise HTTPException(status_code=400, detail="Invalid waypoints")
+    state["convoy"] = {"id": f"VIP-{uuid.uuid4().hex[:5].upper()}", "status": "active",
+                       "dignitary": input_data.dignitary, "vehicle_type": input_data.vehicle_type,
+                       "priority": input_data.priority, "waypoints": input_data.waypoints,
+                       "waypoint_positions": pts, "progress": 0.0, "eta_minutes": 18,
+                       "signals_held": 22, "started_at": datetime.now(timezone.utc).isoformat()}
+    return state["convoy"]
+
+@router.post("/convoy/pause")
+async def convoy_pause():
+    if not state["convoy"]:
+        raise HTTPException(status_code=404, detail="No active convoy")
+    state["convoy"]["status"] = "paused"
+    return state["convoy"]
+
+@router.post("/convoy/resume")
+async def convoy_resume():
+    if not state["convoy"]:
+        raise HTTPException(status_code=404, detail="No active convoy")
+    state["convoy"]["status"] = "active"
+    return state["convoy"]
+
+@router.post("/convoy/cancel")
+async def convoy_cancel():
+    if not state["convoy"]:
+        raise HTTPException(status_code=404, detail="No active convoy")
+    prev = state["convoy"]
+    state["convoy"] = None
+    return {"cancelled": prev, "signals_restored": True}
+
+@router.get("/convoy/status")
+async def convoy_status():
+    return state["convoy"] or {"status": "idle"}
+
+@router.post("/signals/adjust")
+async def signal_adjust(cmd: SignalCommand):
+    road = ROAD_BY_ID.get(cmd.road_id)
+    if not road:
+        raise HTTPException(status_code=404, detail="Road not found")
+    return {"road_id": cmd.road_id, "green_duration": cmd.green_duration, "mode": cmd.mode,
+            "applied": True, "estimated_gain": f"-{max(4, cmd.green_duration // 6)}% queue"}
+
+@router.get("/system/health")
+async def system_health():
+    return {"backend": {"status": "ok", "uptime_seconds": round(time.time() - state["started_at"], 1)},
+            "websocket": {"clients": len(state["clients"]), "status": "streaming"},
+            "database": {"status": "connected", "type": "MongoDB"},
+            "simulation": {"tick": state["tick"], "running": state["running"], "fps_target": 30},
+            "api_latency_ms": {"p50": 14, "p95": 42, "p99": 78},
+            "cpu_percent": round(24 + math.sin(state["tick"] / 4) * 8, 1),
+            "memory_mb": 348, "event_rate_per_sec": 12.4}
 
 async def persist_message(message: str, response: str):
     try:
-        await db.assistant_messages.insert_one({"message": message, "response": response, "created_at": datetime.now(timezone.utc).isoformat()})
+        await db.assistant_messages.insert_one({"message": message, "response": response,
+                                                "created_at": datetime.now(timezone.utc).isoformat()})
     except Exception as exc:
         logger.debug("Mongo persistence skipped: %s", exc)
 
@@ -278,7 +549,9 @@ async def assistant_stream(input_data: AssistantRequest):
             try:
                 from emergentintegrations.llm.chat import LlmChat, StreamDone, TextDelta, UserMessage
                 chat = LlmChat(api_key=key, session_id=f"traffic-{uuid.uuid4().hex}",
-                               system_message="You are AIRA, the calm Hyderabad traffic command center assistant. Use this live context: " + str(metrics()) + ". Give concise operational answers with route, time, and confidence when relevant.").with_model("openai", "gpt-5.4")
+                               system_message="You are AIRA, the calm Hyderabad traffic command center assistant. Use this live context: "
+                               + str(metrics()) + ". Give concise operational answers with route, time, and confidence when relevant.")
+                chat = chat.with_model("openai", "gpt-5.4")
                 stream = chat.stream_message(UserMessage(text=input_data.message))
                 deadline = asyncio.get_running_loop().time() + 18
                 while asyncio.get_running_loop().time() < deadline:
@@ -287,7 +560,6 @@ async def assistant_stream(input_data: AssistantRequest):
                     except StopAsyncIteration:
                         break
                     except asyncio.TimeoutError:
-                        logger.warning("AIRA stream timed out before completion")
                         break
                     if isinstance(event, TextDelta):
                         response_text += event.content
@@ -299,26 +571,41 @@ async def assistant_stream(input_data: AssistantRequest):
             except Exception as exc:
                 logger.warning("LLM stream unavailable: %s", exc)
         if not response_text:
-            response_text = f"AIRA readout: {input_data.message.strip().capitalize()} — congestion is {metrics()['congestion_index']}% across the twin. The recommended action is to stage a green wave through HITEC City and monitor the Airport Corridor. Confidence 86%."
+            response_text = (f"AIRA readout: {input_data.message.strip().capitalize()} — congestion is "
+                             f"{metrics()['congestion_index']}% across the twin. Stage a green wave through HITEC City "
+                             "and monitor the Airport Corridor. Confidence 86%.")
             yield response_text
         await persist_message(input_data.message, response_text)
-    return StreamingResponse(generator(), media_type="text/plain", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return StreamingResponse(generator(), media_type="text/plain",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 @app.websocket("/api/ws/traffic")
 async def traffic_socket(websocket: WebSocket):
     await websocket.accept()
     state["clients"].add(websocket)
     try:
-        await websocket.send_json(snapshot())
+        await websocket.send_json({"kind": "snapshot", "data": snapshot()})
         while True:
-            await asyncio.sleep(10)
+            await asyncio.sleep(30)
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
         state["clients"].discard(websocket)
 
 app.include_router(router)
-app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","), allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_credentials=True,
+                   allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+                   allow_methods=["*"], allow_headers=["*"])
+
+async def broadcast(kind: str, data: Any):
+    if not state["clients"]:
+        return
+    payload = {"kind": kind, "data": data}
+    for client in list(state["clients"]):
+        try:
+            await client.send_json(payload)
+        except Exception:
+            state["clients"].discard(client)
 
 async def simulation_loop():
     while True:
@@ -327,21 +614,32 @@ async def simulation_loop():
             continue
         state["tick"] += 1
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        # advance vehicles along their assigned roads
         for vehicle in VEHICLES:
-            vehicle["progress"] = (vehicle["progress"] + (vehicle["speed"] / 2200)) % 1
-            vehicle["speed"] = max(12, min(62, vehicle["speed"] + random.uniform(-2.5, 2.5)))
+            road = ROAD_BY_ID.get(vehicle["road_id"])
+            if not road:
+                continue
+            delta = vehicle["speed"] / (60 * max(road["length_km"], 0.4) * 30)
+            vehicle["progress"] = (vehicle["progress"] + delta * vehicle["direction"]) % 1
+            # gently drift speed toward target based on congestion
+            drag = road["congestion"] / 120.0
+            target = max(12, vehicle["target_speed"] * (1 - drag))
+            vehicle["speed"] = round(vehicle["speed"] * 0.9 + target * 0.1 + random.uniform(-1.4, 1.4), 1)
+        # oscillate road congestion
+        for i, road in enumerate(ROADS):
+            base = 40 + (i * 11) % 55
+            road["congestion"] = round(max(18, min(96, base + math.sin(state["tick"] / 7 + i) * 12
+                                                  + (10 if state["weather"] == "Rainstorm" else 0))), 1)
+        # advance convoy
+        if state["convoy"] and state["convoy"]["status"] == "active":
+            state["convoy"]["progress"] = min(1.0, state["convoy"]["progress"] + 0.02)
+            state["convoy"]["eta_minutes"] = max(0, round(18 * (1 - state["convoy"]["progress"])))
+            if state["convoy"]["progress"] >= 1.0:
+                state["convoy"]["status"] = "completed"
+        # history + broadcast
         state["history"].append({"tick": state["tick"], "time": state["updated_at"], "metrics": metrics()})
-        state["history"] = state["history"][-60:]
-        if state["clients"]:
-            message = snapshot()
-            stale = []
-            for client in list(state["clients"]):
-                try:
-                    await client.send_json(message)
-                except Exception:
-                    stale.append(client)
-            for client in stale:
-                state["clients"].discard(client)
+        state["history"] = state["history"][-120:]
+        await broadcast("snapshot", snapshot())
 
 @app.on_event("startup")
 async def startup():
@@ -349,5 +647,7 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
-    app.state.simulation_task.cancel()
+    task = getattr(app.state, "simulation_task", None)
+    if task:
+        task.cancel()
     mongo_client.close()
