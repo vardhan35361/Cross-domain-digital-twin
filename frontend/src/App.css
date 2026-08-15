@@ -533,3 +533,129 @@ button { cursor: pointer; font-family: inherit; }
   .main-stage { margin-left: 66px; width: calc(100% - 66px); padding: 22px 20px; }
   .metrics-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ===== Login page ============================================ */
+.login-shell { min-height: 100vh; background: var(--bg-0); position: relative; overflow: hidden;
+  display: flex; flex-direction: column; }
+.login-bg { position: absolute; inset: 0; opacity: 0.28; pointer-events: none;
+  background:
+    radial-gradient(70% 40% at 22% 20%, rgba(0,132,200,0.35), transparent 65%),
+    radial-gradient(50% 50% at 82% 84%, rgba(0,255,136,0.14), transparent 65%),
+    linear-gradient(120deg, transparent 30%, rgba(0,243,255,0.05) 60%, transparent 90%);
+}
+.login-shell::before { content:""; position: absolute; inset: 0; opacity: 0.16; pointer-events: none;
+  background-image: linear-gradient(rgba(0,243,255,0.14) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(0,243,255,0.14) 1px, transparent 1px);
+  background-size: 90px 90px;
+  mask-image: linear-gradient(to bottom, black, transparent 90%); }
+.login-wrap { position: relative; z-index: 2; display: grid; grid-template-columns: minmax(400px, 460px) 1fr;
+  gap: 40px; padding: 60px 60px 40px; align-items: start; flex: 1; }
+.login-card { background: var(--panel-bg); border: 1px solid var(--line-strong); padding: 34px 34px 30px;
+  backdrop-filter: blur(24px); box-shadow: 0 30px 80px rgba(0,0,0,0.55); }
+.login-crest { display: flex; gap: 14px; margin-bottom: 26px; }
+.crest-ring { width: 46px; height: 46px; border: 1px solid var(--cyan); color: var(--cyan);
+  display: grid; place-items: center; box-shadow: 0 0 18px rgba(0,243,255,0.25); }
+.login-crest > div:last-child span { display: block; font: 500 8px var(--font-mono); color: var(--text-3); letter-spacing: 1.6px; }
+.login-crest strong { display: block; font: 600 22px var(--font-display); letter-spacing: 0.4px; margin: 4px 0; }
+.login-crest small { display: block; font: 500 9px var(--font-mono); color: var(--text-2); }
+.login-form { display: grid; gap: 16px; }
+.login-form label { display: block; font: 500 9px var(--font-mono); color: var(--text-2); letter-spacing: 0.6px; }
+.login-form input { display: block; width: 100%; margin-top: 8px; background: #04121e;
+  border: 1px solid var(--line); color: var(--text-0); padding: 12px 14px; font-size: 13px; outline: 0; font-family: inherit; }
+.login-form input:focus { border-color: var(--cyan); box-shadow: 0 0 14px rgba(0,243,255,0.18); }
+.login-error { color: #ff6a82; font: 500 10px var(--font-mono); background: rgba(255,32,80,0.08); border: 1px solid rgba(255,32,80,0.28); padding: 10px 12px; }
+.login-cta { background: var(--cyan); color: #04121e; padding: 14px; border: 0; font: 700 11px var(--font-mono); letter-spacing: 2px;
+  display: flex; align-items: center; justify-content: center; gap: 10px; }
+.login-cta:hover { box-shadow: 0 0 24px rgba(0,243,255,0.35); }
+.login-cta:disabled { opacity: 0.7; cursor: wait; }
+.login-notes { display: grid; gap: 4px; font: 500 8px var(--font-mono); color: var(--text-3); letter-spacing: 0.4px; }
+.login-accounts { padding: 6px 0; }
+.accounts-head { margin-bottom: 18px; }
+.accounts-head h2 { font: 500 22px var(--font-display); margin: 5px 0 6px; }
+.accounts-head small { font: 500 10px var(--font-mono); color: var(--text-2); }
+.accounts-head small code { background: rgba(0,255,136,0.08); color: var(--green); padding: 3px 8px; font-size: 10px; }
+.account-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.account-card { display: flex; gap: 10px; align-items: flex-start; padding: 14px; background: var(--panel-bg);
+  border: 1px solid var(--line); text-align: left; color: var(--text-1); transition: border-color 0.2s, transform 0.15s; }
+.account-card:hover { border-color: var(--cyan); transform: translateY(-2px); }
+.account-avatar { width: 30px; height: 30px; border: 1px solid var(--line); display: grid; place-items: center; color: var(--cyan); flex: none; }
+.account-card strong { display: block; font: 500 11px var(--font-display); color: var(--text-0); letter-spacing: 0.3px; }
+.account-card span { display: block; font: 500 10px var(--font-mono); color: var(--cyan); margin-top: 3px; }
+.account-card small { display: block; font-size: 10px; color: var(--text-2); margin-top: 6px; line-height: 1.4; }
+.account-card em { display: block; font: 500 8px var(--font-mono); color: var(--amber); font-style: normal; margin-top: 6px; letter-spacing: 0.6px; }
+.login-footer { position: relative; z-index: 2; display: flex; justify-content: space-between;
+  padding: 12px 60px 22px; font: 500 8px var(--font-mono); color: var(--text-3); letter-spacing: 0.5px; }
+.login-checking { min-height: 100vh; display: grid; place-items: center; color: var(--text-2); font-family: var(--font-mono); background: var(--bg-0); }
+
+/* ===== Drone / CCTV ========================================== */
+.drone-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; }
+.drone-tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 0 16px 16px; }
+.drone-tile { position: relative; padding: 0; background: transparent; border: 1px solid var(--line);
+  overflow: hidden; text-align: left; color: var(--text-0); }
+.drone-tile.on { border-color: var(--cyan); box-shadow: 0 0 20px rgba(0,243,255,0.24); }
+.drone-tile:hover { border-color: var(--cyan); }
+.drone-caption { display: flex; justify-content: space-between; padding: 8px 10px;
+  background: rgba(3, 11, 20, 0.72); font: 500 9px var(--font-mono); color: var(--text-1); }
+.drone-caption em { color: var(--text-3); font-style: normal; }
+.drone-active { padding: 0 16px 12px; }
+.drone-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #020914; }
+.drone-frame.hero { aspect-ratio: 16 / 8; }
+.drone-frame canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+.drone-overlay { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column;
+  justify-content: space-between; padding: 10px 12px; }
+.drone-hud-top, .drone-hud-bottom { display: flex; justify-content: space-between;
+  font: 500 8px var(--font-mono); color: var(--cyan); letter-spacing: 1px; }
+.drone-hud-top .rec { display: flex; align-items: center; gap: 5px; color: var(--red); }
+.drone-hud-top .rec i { width: 6px; height: 6px; background: var(--red); border-radius: 50%; animation: pulse 1.2s infinite; box-shadow: 0 0 8px var(--red); }
+.drone-reticle { position: absolute; inset: 22px; }
+.reticle-corner { position: absolute; width: 14px; height: 14px; border: 1px solid var(--cyan); opacity: 0.6; }
+.reticle-corner.tl { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+.reticle-corner.tr { top: 0; right: 0; border-left: 0; border-bottom: 0; }
+.reticle-corner.bl { bottom: 0; left: 0; border-right: 0; border-top: 0; }
+.reticle-corner.br { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+.reticle-cross { position: absolute; inset: 0; display: grid; place-items: center; }
+.reticle-cross span { position: absolute; background: var(--cyan); opacity: 0.5; }
+.reticle-cross span:nth-child(1) { width: 22px; height: 1px; }
+.reticle-cross span:nth-child(2) { width: 1px; height: 22px; }
+
+.drone-controls { padding: 0 20px 18px; display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: start; }
+.ptz-pad { display: grid; gap: 6px; }
+.ptz-row { display: flex; gap: 6px; }
+.ptz-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.drone-meta { grid-column: 1 / -1; display: flex; gap: 12px; flex-wrap: wrap; padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.06); font: 500 9px var(--font-mono); color: var(--text-2); }
+.drone-meta svg { color: var(--cyan); vertical-align: middle; margin-right: 4px; }
+
+.cctv-toolbar { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 0 18px; font: 500 8px var(--font-mono); color: var(--text-2); align-items: center; }
+.cctv-toolbar > span { display: flex; align-items: center; gap: 6px; margin-right: 6px; letter-spacing: 0.6px; }
+.zone-chip { padding: 6px 10px; background: transparent; border: 1px solid var(--line); color: var(--text-2); font: 500 8px var(--font-mono); letter-spacing: 0.6px; text-transform: uppercase; }
+.zone-chip.on { color: var(--cyan); border-color: var(--cyan); background: rgba(0,243,255,0.08); }
+.cctv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.cctv-card { background: var(--panel-bg); border: 1px solid var(--line); overflow: hidden; }
+.cctv-meta { display: flex; justify-content: space-between; padding: 10px 12px; align-items: center; gap: 8px; }
+.cctv-meta strong { display: block; font: 500 11px var(--font-display); }
+.cctv-meta span { display: block; font: 500 8px var(--font-mono); color: var(--text-3); margin-top: 3px; }
+.cctv-actions { display: flex; gap: 6px; align-items: center; }
+.cctv-modal { width: min(880px, 100%); background: #061829; border: 1px solid var(--line-strong); padding: 6px 0 20px; }
+.cctv-modal-body { padding: 0 20px; }
+.cctv-modal-meta { display: flex; gap: 14px; padding-top: 14px; font: 500 9px var(--font-mono); color: var(--text-2); }
+.cctv-modal-meta svg { color: var(--cyan); vertical-align: middle; margin-right: 4px; }
+
+/* ===== Audit / Settings ====================================== */
+.audit-toolbar { display: flex; gap: 6px; padding: 4px 0 14px; }
+.settings-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 22px; }
+.settings-grid .scenario-buttons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; padding: 0 18px 14px; }
+.scenario { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); color: var(--text-2);
+  padding: 10px 8px; font: 500 9px var(--font-mono); display: flex; gap: 6px; align-items: center; letter-spacing: 0.5px; text-transform: uppercase; }
+.scenario.active { border-color: var(--cyan); color: #b8f8ff; background: rgba(0,243,255,0.1); }
+
+.skeleton-row { padding: 12px 20px; border-top: 1px solid rgba(255,255,255,0.06); display: grid; gap: 6px; }
+.skeleton-line { height: 10px; background: linear-gradient(90deg, rgba(0,243,255,0.08), rgba(0,243,255,0.16), rgba(0,243,255,0.08));
+  background-size: 200% 100%; animation: shimmer 1.6s infinite; }
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+@media (max-width: 1200px) {
+  .login-wrap { grid-template-columns: 1fr; padding: 40px 30px; }
+  .drone-grid { grid-template-columns: 1fr; }
+  .settings-grid { grid-template-columns: 1fr; }
+}

@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 5 — full validation of JWT + 6-role RBAC + audit + user admin + 3 new endpoints + enhanced simulation + 5 new frontend workspaces + role-gated sidebar + logout. Backend: created /app/tests/test_auth_rbac.py (21 tests) — 21/21 PASS covering: /api/auth/accounts (6 seeded, password Hyderabad@2026), /api/auth/login for each of 6 roles + wrong-password 401 + auth.login_failed audit event, /api/auth/me via Bearer AND via cookie AND 401 when anon, /api/users viewer-403 super_admin-200 + no password_hash leak, /api/audit viewer-403 super_admin-200, /api/signals/adjust audits signal.override with meta.green_duration+mode, /api/junctions returns 11 with phase/queue_length/mode, /api/drones returns 5, /api/cameras returns 12, vehicle progress advances non-monotonically over 8s window (>30% moved), Cricket-match scenario propagates through /api/roads congestion, /api/users/{id}/deactivate flips active=false + /api/auth/me returns 401 for inactive user + reactivate flips back, 400/404 for bad + missing user ids. Regression: existing /app/backend/tests/test_traffic_api.py (18 tests) — 18/18 PASS. Frontend: Playwright verified /login (login-page + 6 account cards + auto-fill + submit → command-shell), super_admin sidebar has all 16 nav items, DroneSurveillance (page-drones, 5 drone-tile-SKY-* cards + drone-canvas + all 8 PTZ buttons clickable), CctvNetwork (cctv-grid, 12 cctv-card-cam-* cards, 12 filter chips, cctv-modal open/close), UserAdmin (all 6 seeded officers listed, user-toggle-viewer flips twice), AuditLogs (4 filter chips, 31 rows including 25 auth.login rows), Settings (scenario-cricket / weather-rainstorm / time-night propagate into /api/simulation/status → scenario='Cricket match', weather='Rainstorm', time_of_day='night'), Replay skeleton (replay-loading-skeleton caught on nav-in, replay-list-panel resolves), logout (redirects to /login and refresh stays on /login), viewer sidebar has EXACTLY 4 items {nav-overview, nav-twin, nav-analytics, nav-predictive} — no nav-users/audit/settings/signals/incidents/emergency.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/tests/test_auth_rbac.py",
+    "/app/backend/tests/test_traffic_api.py",
+    "/app/test_reports/pytest/auth_rbac.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Backend uvicorn --reload watches /app/backend recursively — writing anything under /app/backend/tests triggers a reload storm that stalls active HTTPS/WS clients for ~5 minutes (reproduced this iteration). Mitigation applied: placed new suite at /app/tests/test_auth_rbac.py (outside watched dir) after `sudo supervisorctl restart backend`. RECOMMEND server.py/uvicorn config: narrow --reload-dir to server modules OR move backend/tests → /app/tests permanently to prevent future storms.",
+    "Problem statement referenced data-testid=`page-login` but the actual attribute on LoginPage.jsx line 34 is `login-page`. Not blocking (all other page-* testids follow the `page-<name>` convention e.g. page-drones, page-cctv). Consider renaming to `page-login` for consistency.",
+    "auth.py: login endpoint does NOT check user.active before issuing a JWT — inactive users can still obtain a token (though /auth/me and any protected route correctly rejects them via current_user dependency). Minor hardening: return 401 at login for inactive accounts to avoid leaking that credentials are valid.",
+    "auth.py: bcrypt hashing happens synchronously in seed_users + login — under load this blocks the FastAPI event loop. Consider `run_in_executor` wrapper. Non-blocking for demo scale.",
+    "auth.py: /api/users returns raw Mongo docs with `_id` popped into `id` but leaves other internals; a Pydantic response_model would enforce shape and hide any future accidental field additions.",
+    "DroneSurveillance.jsx: fetches /api/drones without a loading state — briefly shows '0 DRONES STREAMING' on first paint (~1-3s). Consider a small skeleton like Replay page now has.",
+    "server.py assistant model 'gpt-5.4' still referenced (fallback works, pre-existing note from iter 4)."
+  ],
+  "updated_files": ["/app/tests/test_auth_rbac.py"],
+  "success_rate": {"backend": "100% (21/21 new + 18/18 regression = 39/39)", "frontend": "100% of critical flows verified"},
+  "test_credentials": "See /app/memory/test_credentials.md — 6 seeded emails all use password Hyderabad@2026 (super@, control@, senior@, zone.gachi@, dispatch@, viewer@ at hyderabad.gov.in)",
+  "seed_data_creation": "None new — seeded users are idempotently created by backend on startup via auth.seed_users(). Some TEST_ audit rows accumulate from test_signal_override_recorded_in_audit run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Uvicorn hot-reload watches /app/backend recursively — DO NOT add new test files under /app/backend/tests, they trigger a reload storm and stall HTTPS calls for ~5min. Put new pytest files at /app/tests/. If backend appears hung, `sudo supervisorctl restart backend`. Login testid is `login-page` (not `page-login`). Drone tiles take ~1-3s after mount to render — always `wait_for_timeout(3000)` before asserting tile count. Sidebar for viewer role has only 4 items (overview/twin/analytics/predictive)."
+}

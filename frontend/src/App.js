@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { AuthProvider, useAuth } from "./state/AuthContext";
 import { TwinProvider } from "./state/TwinContext";
 import Sidebar from "./layout/Sidebar";
 import TopBar from "./layout/TopBar";
 import AssistantDrawer from "./layout/AssistantDrawer";
+import LoginPage from "./pages/LoginPage";
 import CityOverview from "./pages/CityOverview";
 import DigitalTwin from "./pages/DigitalTwin";
 import Analytics from "./pages/Analytics";
@@ -15,6 +17,11 @@ import Signals from "./pages/Signals";
 import Replay from "./pages/Replay";
 import LiveData from "./pages/LiveData";
 import SystemMonitoring from "./pages/SystemMonitoring";
+import DroneSurveillance from "./pages/DroneSurveillance";
+import CctvNetwork from "./pages/CctvNetwork";
+import UserAdmin from "./pages/UserAdmin";
+import AuditLogs from "./pages/AuditLogs";
+import Settings from "./pages/Settings";
 import "@/App.css";
 
 const HEADERS = {
@@ -26,15 +33,20 @@ const HEADERS = {
   "/emergency": { title: <>Emergency <em>operations</em></>, kicker: "GREEN CORRIDOR CONSOLE" },
   "/convoy": { title: <>VIP <em>convoy</em></>, kicker: "PROTECTED MOVEMENT" },
   "/signals": { title: <>Signal <em>control</em></>, kicker: "ADAPTIVE SIGNAL CENTER" },
+  "/drones": { title: <>Drone <em>surveillance</em></>, kicker: "AERIAL MONITORING" },
+  "/cctv": { title: <>CCTV <em>network</em></>, kicker: "CAMERA SURVEILLANCE" },
   "/replay": { title: <>Replay & <em>timeline</em></>, kicker: "OPERATIONAL PLAYBACK" },
   "/live": { title: <>Live <em>integrations</em></>, kicker: "ADAPTER MATRIX" },
   "/system": { title: <>System <em>monitoring</em></>, kicker: "DEVOPS DASHBOARD" },
+  "/users": { title: <>User <em>administration</em></>, kicker: "ACCESS CONTROL" },
+  "/audit": { title: <>Audit <em>& security</em></>, kicker: "ACTIVITY LOG" },
+  "/settings": { title: <>Simulation <em>settings</em></>, kicker: "PLATFORM CONFIG" },
 };
 
 function AppShell() {
   const [assistantOpen, setAssistantOpen] = useState(false);
-  const path = typeof window !== "undefined" ? window.location.pathname : "/";
-  const header = HEADERS[path] || HEADERS["/"];
+  const location = useLocation();
+  const header = HEADERS[location.pathname] || HEADERS["/"];
   return (
     <div className="command-shell" data-testid="command-shell">
       <Sidebar />
@@ -49,12 +61,18 @@ function AppShell() {
           <Route path="/emergency" element={<Emergency />} />
           <Route path="/convoy" element={<VipConvoy />} />
           <Route path="/signals" element={<Signals />} />
+          <Route path="/drones" element={<DroneSurveillance />} />
+          <Route path="/cctv" element={<CctvNetwork />} />
           <Route path="/replay" element={<Replay />} />
           <Route path="/live" element={<LiveData />} />
           <Route path="/system" element={<SystemMonitoring />} />
+          <Route path="/users" element={<UserAdmin />} />
+          <Route path="/audit" element={<AuditLogs />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <footer className="footer-bar">
-          <span>HYD-TWIN / OPERATIONS BUILD 2.0.0</span>
+          <span>HYD-ITMS / OPERATIONS BUILD 2.5.0</span>
           <span><i className="pulse-dot"/> All systems nominal</span>
           <span>DATA REFRESH 2S · NODE HYD-01</span>
         </footer>
@@ -64,12 +82,28 @@ function AppShell() {
   );
 }
 
+function Guarded({ children }) {
+  const { user, checking } = useAuth();
+  if (checking) return <div className="login-checking" data-testid="auth-checking">Checking session…</div>;
+  if (user === false || user == null) return <Navigate to="/login" replace />;
+  return children;
+}
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/*" element={<Guarded><TwinProvider><AppShell/></TwinProvider></Guarded>} />
+    </Routes>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
-      <TwinProvider>
-        <AppShell />
-      </TwinProvider>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
     </BrowserRouter>
   );
 }

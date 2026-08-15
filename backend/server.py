@@ -12,11 +12,13 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
+
+from auth import ROLES, SEED_ACCOUNTS, build_router as build_auth_router, record_audit, seed_users
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -181,8 +183,10 @@ state: Dict[str, Any] = {
     "updated_at": datetime.now(timezone.utc).isoformat(),
     "history": [], "corridors": [], "clients": set(),
     "layers": {"traffic": True, "heatmap": True, "incidents": True, "weather": True,
-               "corridors": True, "metro": True, "drone": False, "buildings": True},
+               "corridors": True, "metro": True, "drone": False, "buildings": True,
+               "cctv": False, "junctions": True},
     "convoy": None,
+    "signal_overrides": {},
     "started_at": time.time(),
 }
 
@@ -266,7 +270,8 @@ def snapshot() -> Dict[str, Any]:
     return {"metrics": metrics(), "roads": ROADS, "vehicles": VEHICLES,
             "incidents": INCIDENTS, "scenario": state["scenario"], "weather": state["weather"],
             "time_of_day": state["time_of_day"], "tick": state["tick"], "layers": state["layers"],
-            "heatmap": heatmap_snapshot(), "convoy": state["convoy"]}
+            "heatmap": heatmap_snapshot(), "convoy": state["convoy"],
+            "junctions": junctions_snapshot()}
 
 # --- Pydantic models ---
 class IncidentCreate(BaseModel):
@@ -516,10 +521,15 @@ async def convoy_status():
     return state["convoy"] or {"status": "idle"}
 
 @router.post("/signals/adjust")
-async def signal_adjust(cmd: SignalCommand):
+async def signal_adjust(cmd: SignalCommand, request: Request):
     road = ROAD_BY_ID.get(cmd.road_id)
     if not road:
         raise HTTPException(status_code=404, detail="Road not found")
+    state["signal_overrides"][cmd.road_id] = {"green_duration": cmd.green_duration, "mode": cmd.mode,
+                                              "applied_at": datetime.now(timezone.utc).isoformat()}
+    await record_audit(db, None, "signal.override", cmd.road_id,
+                       meta={"green_duration": cmd.green_duration, "mode": cmd.mode},
+                       ip=request.client.host if request.client else "-")
     return {"road_id": cmd.road_id, "green_duration": cmd.green_duration, "mode": cmd.mode,
             "applied": True, "estimated_gain": f"-{max(4, cmd.green_duration // 6)}% queue"}
 
@@ -532,6 +542,64 @@ async def system_health():
             "api_latency_ms": {"p50": 14, "p95": 42, "p99": 78},
             "cpu_percent": round(24 + math.sin(state["tick"] / 4) * 8, 1),
             "memory_mb": 348, "event_rate_per_sec": 12.4}
+
+# ------------ Junctions + realistic signal state ------------
+JUNCTION_IDS = ["z-madhapur", "z-jubilee", "z-banjara", "z-ameerpet", "z-begum",
+                "z-tank", "z-secun", "z-uppal", "z-lbnagar", "z-mehdi", "z-kondapur"]
+
+def junctions_snapshot() -> List[Dict[str, Any]]:
+    tick = state["tick"]
+    out = []
+    for i, zid in enumerate(JUNCTION_IDS):
+        zone = ZONE_BY_ID[zid]
+        phase_pos = ((tick + i * 3) // 5) % 4
+        phases = ["north-south green", "east-west green", "all-red clearance", "left-turn priority"]
+        remaining = 5 - (tick + i * 3) % 5
+        queue = round(6 + math.sin(tick / 3 + i) * 4 + (4 if state["weather"] == "Rainstorm" else 0))
+        out.append({
+            "id": f"jct-{zid}", "zone": zone["name"], "position": zone["pos"],
+            "phase": phases[phase_pos], "phase_index": int(phase_pos),
+            "remaining_seconds": remaining * 5, "queue_length": max(0, queue),
+            "cycle_seconds": 100, "mode": "adaptive",
+            "override_active": state["signal_overrides"].get(f"jct-{zid}") is not None,
+        })
+    return out
+
+@router.get("/junctions")
+async def junctions():
+    return junctions_snapshot()
+
+# ------------ Drone + CCTV surveillance ------------
+DRONE_FEEDS = [
+    {"id": "drone-hitec", "callsign": "SKY-01", "zone": "HITEC City", "altitude_m": 90, "battery": 78, "status": "streaming", "resolution": "1080p", "target": "corridor"},
+    {"id": "drone-fin", "callsign": "SKY-02", "zone": "Financial District", "altitude_m": 110, "battery": 62, "status": "streaming", "resolution": "1080p", "target": "junction"},
+    {"id": "drone-air", "callsign": "SKY-03", "zone": "Airport Corridor", "altitude_m": 140, "battery": 84, "status": "streaming", "resolution": "1080p", "target": "convoy"},
+    {"id": "drone-orr", "callsign": "SKY-04", "zone": "ORR East Gate", "altitude_m": 95, "battery": 55, "status": "streaming", "resolution": "1080p", "target": "traffic"},
+    {"id": "drone-gachi", "callsign": "SKY-05", "zone": "Gachibowli", "altitude_m": 70, "battery": 91, "status": "streaming", "resolution": "1080p", "target": "emergency"},
+]
+
+@router.get("/drones")
+async def drones():
+    return DRONE_FEEDS
+
+CCTV_CAMERAS = [
+    {"id": "cam-hitec-01", "location": "HITEC Junction", "zone": "HITEC City", "type": "intersection", "status": "online", "recording": True, "resolution": "4K"},
+    {"id": "cam-hitec-02", "location": "Raidurg Metro", "zone": "HITEC City", "type": "metro", "status": "online", "recording": True, "resolution": "1080p"},
+    {"id": "cam-fin-01", "location": "Nanakramguda Flyover", "zone": "Financial District", "type": "flyover", "status": "online", "recording": True, "resolution": "4K"},
+    {"id": "cam-jubilee-01", "location": "Road No.36", "zone": "Jubilee Hills", "type": "intersection", "status": "online", "recording": True, "resolution": "1080p"},
+    {"id": "cam-airport-01", "location": "PVNR Expressway Km 6", "zone": "Airport Corridor", "type": "highway", "status": "online", "recording": True, "resolution": "4K"},
+    {"id": "cam-airport-02", "location": "Shamshabad Gate", "zone": "Shamshabad", "type": "toll", "status": "online", "recording": True, "resolution": "1080p"},
+    {"id": "cam-orr-01", "location": "ORR East Ramp", "zone": "ORR East Gate", "type": "highway", "status": "online", "recording": True, "resolution": "4K"},
+    {"id": "cam-orr-02", "location": "ORR West Ramp", "zone": "ORR West Gate", "type": "highway", "status": "degraded", "recording": True, "resolution": "720p"},
+    {"id": "cam-secun-01", "location": "Tank Bund Rd", "zone": "Secunderabad", "type": "arterial", "status": "online", "recording": True, "resolution": "1080p"},
+    {"id": "cam-lb-01", "location": "LB Nagar Junction", "zone": "LB Nagar", "type": "intersection", "status": "online", "recording": True, "resolution": "1080p"},
+    {"id": "cam-uppal-01", "location": "Uppal X-Roads", "zone": "Uppal", "type": "intersection", "status": "online", "recording": True, "resolution": "4K"},
+    {"id": "cam-charm-01", "location": "Charminar Circle", "zone": "Charminar", "type": "heritage", "status": "online", "recording": True, "resolution": "1080p"},
+]
+
+@router.get("/cameras")
+async def cameras():
+    return CCTV_CAMERAS
 
 async def persist_message(message: str, response: str):
     try:
@@ -593,6 +661,9 @@ async def traffic_socket(websocket: WebSocket):
         state["clients"].discard(websocket)
 
 app.include_router(router)
+auth_router_bundle = build_auth_router(db, lambda: state)
+auth_router, _current_user_dep, _require_perm_dep, _record_audit = auth_router_bundle
+app.include_router(auth_router)
 app.add_middleware(CORSMiddleware, allow_credentials=True,
                    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
                    allow_methods=["*"], allow_headers=["*"])
@@ -614,35 +685,72 @@ async def simulation_loop():
             continue
         state["tick"] += 1
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
-        # advance vehicles along their assigned roads
+        # Lane-based advancement with signal-queue behaviour, dispersion, emergency priority
+        junction_positions = [ZONE_BY_ID[z]["pos"] for z in JUNCTION_IDS]
         for vehicle in VEHICLES:
             road = ROAD_BY_ID.get(vehicle["road_id"])
             if not road:
                 continue
-            delta = vehicle["speed"] / (60 * max(road["length_km"], 0.4) * 30)
-            vehicle["progress"] = (vehicle["progress"] + delta * vehicle["direction"]) % 1
-            # gently drift speed toward target based on congestion
+            # base speed target with congestion drag
             drag = road["congestion"] / 120.0
-            target = max(12, vehicle["target_speed"] * (1 - drag))
-            vehicle["speed"] = round(vehicle["speed"] * 0.9 + target * 0.1 + random.uniform(-1.4, 1.4), 1)
-        # oscillate road congestion
+            target = max(10, vehicle["target_speed"] * (1 - drag * 0.9))
+            # emergency vehicles maintain priority speed regardless of drag
+            if vehicle["priority"]:
+                target = vehicle["target_speed"] * 1.05
+            # signal queue effect: when vehicle approaches an end of segment (progress near 0 or 1)
+            # and any nearby junction has a "red" phase, decelerate + build queue
+            edge = min(vehicle["progress"], 1 - vehicle["progress"])
+            near_junction = edge < 0.14
+            if near_junction and not vehicle["priority"]:
+                # sample the junction phase for this tick
+                phase_idx = ((state["tick"] + hash(vehicle["road_id"]) % 5) // 5) % 4
+                if phase_idx in (1, 2):  # red-ish for this direction
+                    target *= 0.3  # sharp deceleration -> queue
+            # smooth deceleration/acceleration (0.85 old, 0.15 new)
+            vehicle["speed"] = round(vehicle["speed"] * 0.85 + target * 0.15 + random.uniform(-0.7, 0.7), 1)
+            vehicle["speed"] = max(4, min(75, vehicle["speed"]))
+            # advance progress
+            step = vehicle["speed"] / (60 * max(road["length_km"], 0.4) * 30)
+            new_progress = vehicle["progress"] + step * vehicle["direction"]
+            # dispersion / lane change: when speed picks up (>40) rotate lane occasionally
+            if vehicle["speed"] > 42 and (state["tick"] + int(vehicle["id"][-3:], 16)) % 17 == 0:
+                vehicle["lane"] = (vehicle["lane"] + 1) % max(1, road["lanes"] // 2)
+            # wrap or hop road when reaching end
+            if new_progress >= 1 or new_progress <= 0:
+                # pick a connected road at random for spillback / route continuity
+                connected = [r for r in ROADS if road["to_id"] in (r["from_id"], r["to_id"]) and r["id"] != road["id"]]
+                if connected:
+                    nxt = connected[state["tick"] % len(connected)]
+                    vehicle["road_id"] = nxt["id"]
+                    vehicle["progress"] = 0.02 if nxt["from_id"] == road["to_id"] else 0.98
+                    vehicle["direction"] = 1 if vehicle["progress"] < 0.5 else -1
+                else:
+                    vehicle["progress"] = new_progress % 1
+            else:
+                vehicle["progress"] = new_progress
+        # congestion evolves with signal overrides + weather + scenario
+        scenario_boost = {"Office hours": 0, "Festival mode": 12, "Rainstorm": 15,
+                          "Cricket match": 20, "VIP convoy": 8}.get(state["scenario"], 0)
         for i, road in enumerate(ROADS):
-            base = 40 + (i * 11) % 55
-            road["congestion"] = round(max(18, min(96, base + math.sin(state["tick"] / 7 + i) * 12
-                                                  + (10 if state["weather"] == "Rainstorm" else 0))), 1)
-        # advance convoy
+            base = 40 + (i * 11) % 55 + scenario_boost
+            noise = math.sin(state["tick"] / 7 + i) * 12
+            override = state["signal_overrides"].get(road["id"])
+            gain = -min(20, override["green_duration"] // 4) if override else 0
+            weather_extra = 10 if state["weather"] == "Rainstorm" else 0
+            road["congestion"] = round(max(18, min(97, base + noise + weather_extra + gain)), 1)
+        # convoy progress
         if state["convoy"] and state["convoy"]["status"] == "active":
             state["convoy"]["progress"] = min(1.0, state["convoy"]["progress"] + 0.02)
             state["convoy"]["eta_minutes"] = max(0, round(18 * (1 - state["convoy"]["progress"])))
             if state["convoy"]["progress"] >= 1.0:
                 state["convoy"]["status"] = "completed"
-        # history + broadcast
         state["history"].append({"tick": state["tick"], "time": state["updated_at"], "metrics": metrics()})
         state["history"] = state["history"][-120:]
         await broadcast("snapshot", snapshot())
 
 @app.on_event("startup")
 async def startup():
+    await seed_users(db)
     app.state.simulation_task = asyncio.create_task(simulation_loop())
 
 @app.on_event("shutdown")

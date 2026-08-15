@@ -7,12 +7,13 @@ import { Panel } from "../shared/Panel";
 export default function Replay() {
   const { corridors } = useTwin();
   const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(1);
-  useEffect(() => { (async () => { try { setHistory(await api.corridorList()); } catch (_) { setHistory(corridors); } })(); }, [corridors]);
+  useEffect(() => { (async () => { setLoading(true); try { setHistory(await api.corridorList()); } catch (_) { setHistory(corridors); } finally { setLoading(false); } })(); }, [corridors]);
   useEffect(() => {
     if (!playing || !detail?.frames?.length) return;
     const id = setInterval(() => setT(prev => Math.min(detail.frames.length - 1, prev + rate)), 500);
@@ -30,8 +31,15 @@ export default function Replay() {
       </div>
       <div className="replay-grid">
         <Panel kicker="CORRIDORS" title="Recorded operations" testId="replay-list-panel">
-          {history.length === 0 && <div className="empty-row">No corridor operations recorded yet.</div>}
-          {history.map(c => (
+          {loading && (
+            <div data-testid="replay-loading-skeleton">
+              {[1,2,3,4].map(i => (
+                <div key={i} className="skeleton-row"><span className="skeleton-line" style={{width:"70%"}}/><span className="skeleton-line" style={{width:"40%"}}/></div>
+              ))}
+            </div>
+          )}
+          {!loading && history.length === 0 && <div className="empty-row">No corridor operations recorded yet.</div>}
+          {!loading && history.map(c => (
             <button key={c.route_id} className={selected === c.route_id ? "replay-row on" : "replay-row"}
               onClick={() => load(c.route_id)} data-testid={`replay-row-${c.route_id}`}>
               <div><strong>{c.route_id}</strong><span>{c.vehicle_type} · {c.origin} → {c.destination}</span></div>

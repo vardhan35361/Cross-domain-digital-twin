@@ -1,5 +1,7 @@
 import axios from "axios";
 
+axios.defaults.withCredentials = true;
+
 export const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 export const WS_URL = `${(process.env.REACT_APP_BACKEND_URL || "").replace(/^http/, "ws")}/api/ws/traffic`;
 
@@ -32,4 +34,16 @@ export const api = {
   convoyStatus: () => axios.get(`${API}/convoy/status`).then(r => r.data),
   signalAdjust: (payload) => axios.post(`${API}/signals/adjust`, payload).then(r => r.data),
   systemHealth: () => axios.get(`${API}/system/health`).then(r => r.data),
+  junctions: () => axios.get(`${API}/junctions`).then(r => r.data),
+  drones: () => axios.get(`${API}/drones`).then(r => r.data),
+  cameras: () => axios.get(`${API}/cameras`).then(r => r.data),
+  auditList: (limit = 100) => axios.get(`${API}/audit?limit=${limit}`).then(r => r.data),
+  users: () => axios.get(`${API}/users`).then(r => r.data),
+  userDeactivate: (id) => axios.post(`${API}/users/${id}/deactivate`).then(r => r.data),
+  userReactivate: (id) => axios.post(`${API}/users/${id}/reactivate`).then(r => r.data),
+  // auth
+  login: (email, password) => axios.post(`${API}/auth/login`, {email, password}).then(r => r.data),
+  logout: () => axios.post(`${API}/auth/logout`).then(r => r.data),
+  me: () => axios.get(`${API}/auth/me`).then(r => r.data),
+  seededAccounts: () => axios.get(`${API}/auth/accounts`).then(r => r.data),
 };
