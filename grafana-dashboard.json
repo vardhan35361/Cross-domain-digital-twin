@@ -1,0 +1,9 @@
+{
+  "title": "Hyderabad Traffic Twin",
+  "timezone": "browser",
+  "panels": [
+    {"type":"stat","title":"API health","targets":[{"expr":"up{job=\"hyd-twin-api\"}"}]},
+    {"type":"text","title":"Operations","options":{"content":"Live twin telemetry is available through the FastAPI WebSocket stream."}}
+  ],
+  "schemaVersion": 39
+}
