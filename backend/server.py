@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -80,6 +81,54 @@ INCIDENTS = [
      "status": "active", "age": "18 min", "impact": "Diversion active", "color": "#ff6b6b"},
 ]
 
+HYDERABAD_COORDS = {"lat": 17.3850, "lon": 78.4867}
+
+def live_enabled() -> bool:
+    return os.environ.get("TWIN_LIVE_ENABLED", "false").lower() == "true"
+
+def live_status() -> Dict[str, Any]:
+    tomtom_ready = bool(os.environ.get("TOMTOM_API_KEY"))
+    weather_ready = bool(os.environ.get("OPENWEATHER_API_KEY"))
+    return {"enabled": live_enabled(), "feeds": {
+        "traffic": {"provider": "TomTom", "configured": tomtom_ready, "live": live_enabled() and tomtom_ready, "fallback": not (live_enabled() and tomtom_ready)},
+        "weather": {"provider": "OpenWeather", "configured": weather_ready, "live": live_enabled() and weather_ready, "fallback": not (live_enabled() and weather_ready)},
+        "cctv": {"provider": "Authority VMS / ONVIF", "configured": False, "live": False, "fallback": True},
+        "signals": {"provider": "Authority signal API", "configured": False, "live": False, "fallback": True},
+        "dispatch": {"provider": "Authority CAD", "configured": False, "live": False, "fallback": True},
+    }}
+
+async def fetch_tomtom_flow() -> Optional[Dict[str, Any]]:
+    key = os.environ.get("TOMTOM_API_KEY")
+    if not live_enabled() or not key:
+        return None
+    url = "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json"
+    params = {"point": f"{HYDERABAD_COORDS['lat']},{HYDERABAD_COORDS['lon']}", "unit": "KMPH", "key": key}
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as http:
+            response = await http.get(url, params=params, headers={"TomTom-Api-Key": key})
+            response.raise_for_status()
+            data = response.json().get("flowSegmentData", {})
+            return {"current_speed": data.get("currentSpeed"), "free_flow_speed": data.get("freeFlowSpeed"), "confidence": data.get("confidence"), "provider": "TomTom", "live": True}
+    except Exception as exc:
+        logger.warning("TomTom adapter unavailable; retaining seeded traffic: %s", exc)
+        return None
+
+async def fetch_openweather() -> Optional[Dict[str, Any]]:
+    key = os.environ.get("OPENWEATHER_API_KEY")
+    if not live_enabled() or not key:
+        return None
+    url = "https://api.openweathermap.org/data/2.5/weather"
+    params = {"lat": HYDERABAD_COORDS["lat"], "lon": HYDERABAD_COORDS["lon"], "appid": key, "units": "metric"}
+    try:
+        async with httpx.AsyncClient(timeout=4.0) as http:
+            response = await http.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            return {"condition": data.get("weather", [{}])[0].get("main", "Clear"), "temperature": round(data.get("main", {}).get("temp", 29)), "humidity": data.get("main", {}).get("humidity", 52), "visibility": round(data.get("visibility", 9600) / 100), "provider": "OpenWeather", "live": True}
+    except Exception as exc:
+        logger.warning("OpenWeather adapter unavailable; retaining seeded weather: %s", exc)
+        return None
+
 def metrics() -> Dict[str, Any]:
     tick = state["tick"]
     rain = state["weather"] == "Rainstorm"
@@ -127,6 +176,10 @@ async def health():
 async def overview():
     return metrics()
 
+@router.get("/live/status")
+async def live_feed_status():
+    return live_status()
+
 @router.get("/zones")
 async def zones():
     return [{"id": f"zone-{i+1}", "name": name, "position": ZONE_POINTS[i], "status": "monitored"} for i, name in enumerate(ZONE_NAMES)]
@@ -141,7 +194,10 @@ async def vehicles():
 
 @router.get("/traffic")
 async def traffic():
-    return snapshot()
+    live_flow = await fetch_tomtom_flow()
+    result = snapshot()
+    result["live_feed"] = live_flow or {"provider": "seeded simulation", "live": False, "fallback": True}
+    return result
 
 @router.get("/incidents")
 async def incidents():
@@ -177,8 +233,9 @@ async def analytics_trend():
 
 @router.get("/weather")
 async def weather():
-    return {"condition": state["weather"], "temperature": 29, "humidity": 68 if state["weather"] == "Rainstorm" else 52,
-            "visibility": 68 if state["weather"] == "Rainstorm" else 96, "impact": "Moderate traffic drag" if state["weather"] == "Rainstorm" else "Nominal"}
+    seeded = {"condition": state["weather"], "temperature": 29, "humidity": 68 if state["weather"] == "Rainstorm" else 52,
+              "visibility": 68 if state["weather"] == "Rainstorm" else 96, "impact": "Moderate traffic drag" if state["weather"] == "Rainstorm" else "Nominal", "provider": "seeded simulation", "live": False}
+    return await fetch_openweather() or seeded
 
 @router.post("/simulation/control")
 async def simulation_control(command: SimulationCommand):

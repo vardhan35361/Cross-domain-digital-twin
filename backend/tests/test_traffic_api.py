@@ -26,7 +26,41 @@ def test_incident_lifecycle(client):
 
 def test_emergency_route(client):
     r=client.post(BASE_URL+'/api/emergency/routes',json={'origin':'Gachibowli','destination':'HITEC City','vehicle_type':'Ambulance'},timeout=15)
-    assert r.status_code==200; d=r.json(); assert d['eta_minutes']>0 and d['green_corridor'] is True and d['status']=='DISPATCHED'
+    assert r.status_code==200; d=r.json()
+    assert d['eta_minutes']>0 and d['green_corridor'] is True and d['status']=='DISPATCHED'
+    assert 'route_id' in d and d['route_id'].startswith('ROUTE-')
+    assert d['distance_km']>0 and d['signals_optimized']==12
+    assert d['origin']=='Gachibowli' and d['destination']=='HITEC City' and d['vehicle_type']=='Ambulance'
+
+# Live adapters: SEEDED fallback since no API keys
+def test_live_status_seeded(client):
+    r=client.get(BASE_URL+'/api/live/status', timeout=15)
+    assert r.status_code==200
+    data=r.json()
+    assert 'feeds' in data
+    for feed in ['traffic','weather','cctv','signals','dispatch']:
+        assert feed in data['feeds'], feed
+        assert data['feeds'][feed]['live'] is False
+        assert data['feeds'][feed]['fallback'] is True
+
+def test_traffic_snapshot_seeded(client):
+    r=client.get(BASE_URL+'/api/traffic', timeout=15)
+    assert r.status_code==200
+    data=r.json()
+    assert 'metrics' in data and 'roads' in data and 'vehicles' in data
+    assert data['live_feed']['provider']=='seeded simulation'
+    assert data['live_feed']['live'] is False
+
+def test_weather_seeded(client):
+    r=client.get(BASE_URL+'/api/weather', timeout=15)
+    assert r.status_code==200
+    data=r.json()
+    assert data.get('provider')=='seeded simulation'
+    assert data.get('live') is False
+
+def test_health_ok(client):
+    r=client.get(BASE_URL+'/api/health', timeout=15)
+    assert r.status_code==200 and r.json()['status']=='ok'
 
 def test_simulation_control(client):
     r=client.post(BASE_URL+'/api/simulation/control',json={'running':False,'scenario':'Rainstorm','weather':'Rainstorm'},timeout=15)
