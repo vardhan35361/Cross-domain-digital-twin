@@ -861,3 +861,10 @@ button { cursor: pointer; font-family: inherit; }
   .platform-hero { grid-template-columns: 1fr; }
   .platform-secondary { grid-template-columns: 1fr; }
 }
+
+.rail-locked { display:flex; align-items:center; gap:8px; padding: 6px 12px; opacity: .5;
+  color: #6f95b8; cursor: not-allowed; font-size: 12.5px; }
+.rail-locked .lock-badge { margin-left: auto; }
+.domain-chip-locked { display:inline-flex; align-items:center; gap:4px; padding: 4px 10px;
+  color: #6f95b8; background: rgba(90,120,160,.08); border:1px dashed rgba(120,150,180,.35);
+  border-radius: 8px; font-size: 10.5px; letter-spacing: 1px; cursor: not-allowed; }

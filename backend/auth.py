@@ -73,8 +73,8 @@ ROLES = {
     "viewer": {
         "label": "Viewer",
         "permissions": ["overview", "twin", "traffic", "analytics", "predictive", "replay"],
-        "domains": ["*"],
-        "description": "Read-only observer across all domains.",
+        "domains": ["hospital", "traffic"],
+        "description": "Read-only observer of assigned domains. No state-changing actions.",
     },
 }
 
@@ -87,7 +87,7 @@ SEED_ACCOUNTS = [
     ("industrial@twin.platform",  "industrial_operator", "V. Menon",     "INDUSTRIAL"),
     ("energy@twin.platform",      "energy_operator",     "P. Reddy",     "ENERGY"),
     ("water@twin.platform",       "water_operator",      "N. Bose",      "WATER"),
-    ("viewer@twin.platform",      "viewer",              "Media Cell",   "OBSERVER"),
+    ("viewer@twin.platform",      "viewer",              "Media Cell",   "TRAFFIC + HOSPITAL"),
 ]
 
 

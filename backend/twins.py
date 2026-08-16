@@ -1047,6 +1047,36 @@ def build_twins_router(store_getter: Callable[[], Dict[str, Any]],
             return _no_op
         return user_dep
 
+    def _user_domains(user) -> List[str]:
+        if not user:
+            return []
+        role = user.get("role", "viewer")
+        try:
+            from auth import ROLES as _ROLES  # lazy import to avoid cycle
+            return _ROLES.get(role, {}).get("domains", []) or user.get("domains", []) or []
+        except Exception:
+            return user.get("domains", []) or []
+
+    def _guard_read(user, domain: str):
+        if user is None:
+            # Hard-fail: never silently allow anonymous access.
+            raise HTTPException(status_code=401, detail="Authentication required for twin data.")
+        domains = _user_domains(user)
+        if "*" in domains or domain in domains:
+            return
+        raise HTTPException(status_code=403,
+            detail=f"Your role does not permit access to '{domain}' domain data.")
+
+    def _guard_mutate(user, domain: str):
+        _guard_read(user, domain)
+        if user and user.get("role") == "viewer":
+            raise HTTPException(status_code=403, detail="Viewer role cannot execute operator actions.")
+
+    # Expose the guards so server.py can reuse them for traffic + AIRA endpoints
+    router._guard_read = _guard_read           # type: ignore[attr-defined]
+    router._guard_mutate = _guard_mutate       # type: ignore[attr-defined]
+    router._user_domains = _user_domains       # type: ignore[attr-defined]
+
     @router.get("/domains")
     async def list_domains():
         return [DOMAINS[k] for k in ("traffic", "hospital", "building", "industrial", "energy", "water")]
@@ -1058,7 +1088,8 @@ def build_twins_router(store_getter: Callable[[], Dict[str, Any]],
         return DOMAINS[domain_id]
 
     @router.get("/twins/{domain}")
-    async def twin_snapshot(domain: str):
+    async def twin_snapshot(domain: str, user=Depends(_resolve_user_dep())):
+        _guard_read(user, domain)
         if domain == "traffic":
             return {"domain": "traffic", "note": "See /api/traffic for full Traffic twin snapshot."}
         store = store_getter()
@@ -1070,11 +1101,12 @@ def build_twins_router(store_getter: Callable[[], Dict[str, Any]],
                 "scenario": state["scenario"], "running": state["running"], "updated_at": _now()}
 
     @router.get("/twins/{domain}/state")
-    async def twin_state(domain: str):
-        return await twin_snapshot(domain)
+    async def twin_state(domain: str, user=Depends(_resolve_user_dep())):
+        return await twin_snapshot(domain, user=user)
 
     @router.get("/twins/{domain}/events")
-    async def twin_events(domain: str):
+    async def twin_events(domain: str, user=Depends(_resolve_user_dep())):
+        _guard_read(user, domain)
         if domain == "traffic":
             return []
         store = store_getter()
@@ -1083,7 +1115,8 @@ def build_twins_router(store_getter: Callable[[], Dict[str, Any]],
         return store[domain].get("events", [])
 
     @router.get("/twins/{domain}/alerts")
-    async def twin_alerts(domain: str):
+    async def twin_alerts(domain: str, user=Depends(_resolve_user_dep())):
+        _guard_read(user, domain)
         if domain == "traffic":
             return []
         store = store_getter()
@@ -1092,7 +1125,8 @@ def build_twins_router(store_getter: Callable[[], Dict[str, Any]],
         return store[domain].get("alerts", [])
 
     @router.get("/twins/{domain}/history")
-    async def twin_history(domain: str, minutes: int = 60):
+    async def twin_history(domain: str, minutes: int = 60, user=Depends(_resolve_user_dep())):
+        _guard_read(user, domain)
         if domain not in HISTORY:
             raise HTTPException(status_code=404, detail="Domain has no history")
         frames = history_slice(domain, minutes)
@@ -1102,7 +1136,8 @@ def build_twins_router(store_getter: Callable[[], Dict[str, Any]],
                 "frames": frames}
 
     @router.get("/twins/{domain}/history/frame")
-    async def twin_history_frame(domain: str, index: int):
+    async def twin_history_frame(domain: str, index: int, user=Depends(_resolve_user_dep())):
+        _guard_read(user, domain)
         frames = history_slice(domain, 60)
         if not frames:
             raise HTTPException(status_code=404, detail="No history yet")
@@ -1115,24 +1150,10 @@ def build_twins_router(store_getter: Callable[[], Dict[str, Any]],
 
     @router.post("/twins/{domain}/action")
     async def twin_action(domain: str, cmd: ActionCmd, user=Depends(_resolve_user_dep())):
+        _guard_mutate(user, domain)
         store = store_getter()
         if domain not in store:
             raise HTTPException(status_code=404, detail="Domain not found")
-        # Server-side RBAC: enforce domain scope + block viewer role
-        if user:
-            role = user.get("role", "viewer")
-            # domains may be missing from raw Mongo doc — fall back to ROLES definition
-            user_domains = user.get("domains")
-            if not user_domains:
-                try:
-                    from auth import ROLES as _ROLES  # lazy import to avoid cycle
-                    user_domains = _ROLES.get(role, {}).get("domains", [])
-                except Exception:
-                    user_domains = []
-            if role == "viewer":
-                raise HTTPException(status_code=403, detail="Viewer role cannot execute operator actions.")
-            if "*" not in user_domains and domain not in user_domains:
-                raise HTTPException(status_code=403, detail=f"Your role does not permit actions on '{domain}' domain.")
         handlers = ACTION_HANDLERS.get(domain, {})
         handler = handlers.get(cmd.action)
         if not handler:
@@ -1163,7 +1184,8 @@ def build_twins_router(store_getter: Callable[[], Dict[str, Any]],
         return {"ok": True, "domain": domain, "action": cmd.action, "result": result, "event": evt}
 
     @router.post("/twins/{domain}/simulation")
-    async def sim_control(domain: str, cmd: SimCmd):
+    async def sim_control(domain: str, cmd: SimCmd, user=Depends(_resolve_user_dep())):
+        _guard_mutate(user, domain)
         if domain == "traffic":
             raise HTTPException(status_code=400, detail="Use /api/simulation/control for Traffic")
         store = store_getter()
@@ -1179,7 +1201,8 @@ def build_twins_router(store_getter: Callable[[], Dict[str, Any]],
         return {"domain": domain, "running": state["running"], "scenario": state["scenario"], "tick": state["tick"]}
 
     @router.post("/twins/{domain}/simulation/reset")
-    async def sim_reset(domain: str):
+    async def sim_reset(domain: str, user=Depends(_resolve_user_dep())):
+        _guard_mutate(user, domain)
         store = store_getter()
         if domain not in store:
             raise HTTPException(status_code=404, detail="Domain not found")

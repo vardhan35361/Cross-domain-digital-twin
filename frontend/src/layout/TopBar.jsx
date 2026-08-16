@@ -5,7 +5,6 @@ import { useAuth } from "../state/AuthContext";
 import { useDomains } from "../state/DomainContext";
 import { useWs } from "../state/WsProvider";
 import DomainSwitcher from "./DomainSwitcher";
-
 function breadcrumb(pathname, activeDomain) {
   const parts = pathname.split("/").filter(Boolean);
   const crumbs = [{ label: "Digital twins", to: "/" }];
@@ -31,11 +30,13 @@ export default function TopBar({ title, kicker, onOpenAssistant }) {
   const [showBell, setShowBell] = useState(false);
   useEffect(() => { const t = setInterval(() => setClock(new Date()), 1000); return () => clearInterval(t); }, []);
 
-  // Cross-domain notifications aggregated from every snapshot
+  // Cross-domain notifications aggregated from every snapshot — RBAC-filtered
   const notifications = useMemo(() => {
     const items = [];
+    const allowed = user?.domains || [];
+    const canSee = (d) => allowed.includes("*") || allowed.includes(d);
     Object.entries(ws?.snapshots || {}).forEach(([domain, snap]) => {
-      if (!snap) return;
+      if (!snap || !canSee(domain)) return;
       const state = snap.state || {};
       (state.alerts || []).slice(0, 4).forEach(a => items.push({
         domain, severity: a.severity, message: a.message, at: a.at || snap.updated_at,
@@ -43,7 +44,6 @@ export default function TopBar({ title, kicker, onOpenAssistant }) {
       (state.events || []).filter(e => e.type?.startsWith("action.")).slice(0, 2).forEach(e => items.push({
         domain, severity: "INFO", message: e.description, at: e.at,
       }));
-      // Traffic incidents
       if (domain === "traffic") {
         (state.active_incidents || []).slice(0, 3).forEach(i => items.push({
           domain: "traffic", severity: i.severity || "HIGH",
@@ -52,7 +52,7 @@ export default function TopBar({ title, kicker, onOpenAssistant }) {
       }
     });
     return items.sort((a,b) => (b.at || "").localeCompare(a.at || "")).slice(0, 12);
-  }, [ws?.snapshots]);
+  }, [ws?.snapshots, user?.domains]);
 
   const crumbs = breadcrumb(location.pathname, activeDomain);
   return (

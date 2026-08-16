@@ -46,8 +46,16 @@ export function AuthProvider({ children }) {
     return user.permissions?.includes(perm) || false;
   }, [user]);
 
+  const hasDomain = useCallback((d) => {
+    if (!user || user === false) return false;
+    const doms = user.domains || [];
+    return doms.includes("*") || doms.includes(d);
+  }, [user]);
+
+  const isViewer = user?.role === "viewer";
+
   return (
-    <AuthContext.Provider value={{ user, checking, error, login, logout, has }}>
+    <AuthContext.Provider value={{ user, checking, error, login, logout, has, hasDomain, isViewer }}>
       {children}
     </AuthContext.Provider>
   );

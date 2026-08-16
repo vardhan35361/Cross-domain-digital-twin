@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -366,8 +366,53 @@ async def layers_set(cmd: LayerToggle):
     state["layers"][cmd.layer] = cmd.enabled
     return state["layers"]
 
+# Lazy user dependency: `_current_user_dep` is set AFTER auth_router builds.
+# This wrapper defers resolution until each request.
+async def _current_user_dep_lazy(request: Request):
+    if _current_user_dep is None:
+        raise HTTPException(status_code=500, detail="Auth not initialised")
+    from bson import ObjectId  # noqa: F401
+    import jwt as _jwt
+    token = request.cookies.get("access_token")
+    if not token:
+        auth_hdr = request.headers.get("Authorization", "")
+        if auth_hdr.startswith("Bearer "):
+            token = auth_hdr[7:]
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = _jwt.decode(token, os.environ["JWT_SECRET"], algorithms=["HS256"])
+    except _jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Session expired")
+    except _jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid session token")
+    from bson import ObjectId
+    user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+    if not user or not user.get("active", True):
+        raise HTTPException(status_code=401, detail="Account inactive")
+    return user
+
+
+def _traffic_guard_read(user):
+    from auth import ROLES as _ROLES
+    role = user.get("role", "viewer")
+    doms = _ROLES.get(role, {}).get("domains", []) or []
+    if "*" not in doms and "traffic" not in doms:
+        raise HTTPException(status_code=403, detail="Your role does not permit access to Traffic domain data.")
+
+
+def _traffic_guard_mutate(user):
+    if user.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="Viewer role cannot execute operator actions.")
+    _traffic_guard_read(user)
+
+
+_current_user_dep = None  # populated after build_auth_router below
+
+
 @router.get("/traffic")
-async def traffic():
+async def traffic(user=Depends(_current_user_dep_lazy)):
+    _traffic_guard_read(user)
     live_flow = await fetch_tomtom_flow()
     result = snapshot()
     result["live_feed"] = live_flow or {"provider": "seeded simulation", "live": False, "fallback": True}
@@ -620,11 +665,18 @@ async def persist_message(message: str, response: str):
         logger.debug("Mongo persistence skipped: %s", exc)
 
 @router.post("/assistant/stream")
-async def assistant_stream(input_data: AssistantRequest):
+async def assistant_stream(input_data: AssistantRequest, user=Depends(_current_user_dep_lazy)):
+    domain = (input_data.domain or "traffic").lower()
+    # RBAC gate BEFORE opening the stream — return structured 403 for restricted domains
+    doms = _user_domain_list(user)
+    if "*" not in doms and domain not in doms:
+        raise HTTPException(status_code=403,
+            detail={"authorised": False, "domain": domain,
+                    "message": f"AIRA: your role ({user.get('role')}) is not authorised to query the {domain.upper()} domain."})
+
     async def generator():
         response_text = ""
         key = os.environ.get("EMERGENT_LLM_KEY")
-        domain = (input_data.domain or "traffic").lower()
         domain_contexts = {
             "traffic":    ("Hyderabad traffic command center", metrics()),
             "hospital":   ("hospital command center — beds, ICU, ER queue, ambulances, equipment", _TWIN_KPI_FNS["hospital"](state["domain_store"]["hospital"]) if "hospital" in state["domain_store"] else {}),
@@ -683,22 +735,42 @@ async def traffic_socket(websocket: WebSocket):
 
 @app.websocket("/api/ws/twins")
 async def twins_socket(websocket: WebSocket):
-    """Multiplexed WebSocket serving ALL domains under a single connection.
-    Envelope: {kind, data:{domain,...}} — clients filter by domain."""
+    """Multiplexed WebSocket serving domains the authenticated user is allowed to see.
+    Envelope: {kind, data:{domain,...}}. Only authorised domains are sent."""
+    # Authorise via cookie / query token before accepting
+    from auth import ROLES as _ROLES
+    from bson import ObjectId
+    import jwt as _jwt
+    token = websocket.cookies.get("access_token") or websocket.query_params.get("token")
+    user = None
+    if token:
+        try:
+            payload = _jwt.decode(token, os.environ["JWT_SECRET"], algorithms=["HS256"])
+            user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        except Exception:
+            user = None
+    if not user or not user.get("active", True):
+        await websocket.close(code=4401)
+        return
+    allowed = _ROLES.get(user.get("role", "viewer"), {}).get("domains", []) or []
+    def can_see(d): return "*" in allowed or d in allowed
     await websocket.accept()
+    # tag socket with allowed domains so the broadcast fn filters correctly
+    websocket._allowed_domains = allowed  # type: ignore[attr-defined]
     state["clients"].add(websocket)
     try:
-        # Immediate resync: send traffic + every non-traffic snapshot
-        await websocket.send_json({"kind": "snapshot", "data": {"domain": "traffic", **snapshot()}})
+        # Immediate resync: send only authorised domains
+        if can_see("traffic"):
+            await websocket.send_json({"kind": "snapshot", "data": {"domain": "traffic", **snapshot()}})
         for domain, dstate in state["domain_store"].items():
+            if not can_see(domain):
+                continue
             await websocket.send_json({"kind": "domain_snapshot", "data": {
                 "domain": domain, "state": dstate,
                 "kpis": _domain_kpis(domain, dstate),
                 "tick": dstate.get("tick", 0), "scenario": dstate.get("scenario"),
                 "running": dstate.get("running", True)}})
         while True:
-            # Keep the connection open; simulation_loop pushes broadcasts.
-            # Client may send a ping/heartbeat.
             try:
                 msg = await asyncio.wait_for(websocket.receive_text(), timeout=25)
                 if msg:
@@ -713,7 +785,8 @@ async def twins_socket(websocket: WebSocket):
 
 # ---- Traffic history + actions ----
 @router.get("/traffic/history")
-async def traffic_history(minutes: int = 60):
+async def traffic_history(minutes: int = 60, user=Depends(_current_user_dep_lazy)):
+    _traffic_guard_read(user)
     max_frames = min(len(state["history"]), max(1, int(minutes * 60 / 2)))
     frames = state["history"][-max_frames:]
     return {"domain": "traffic", "minutes": minutes, "frame_count": len(frames),
@@ -728,7 +801,8 @@ class RoadCloseCmd(BaseModel):
 
 
 @router.post("/traffic/action/road.close")
-async def traffic_road_close(cmd: RoadCloseCmd, request: Request):
+async def traffic_road_close(cmd: RoadCloseCmd, request: Request, user=Depends(_current_user_dep_lazy)):
+    _traffic_guard_mutate(user)
     road = ROAD_BY_ID.get(cmd.road_id)
     if not road:
         raise HTTPException(status_code=404, detail="Road not found")
@@ -741,8 +815,23 @@ async def traffic_road_close(cmd: RoadCloseCmd, request: Request):
 
 app.include_router(router)
 auth_router_bundle = build_auth_router(db, lambda: state)
-auth_router, _current_user_dep, _require_perm_dep, _record_audit = auth_router_bundle
+auth_router, _current_user_dep, _require_perm_dep, _record_audit = auth_router_bundle  # noqa: F811
 app.include_router(auth_router)
+
+
+def _user_domain_list(user):
+    if not user:
+        return []
+    from auth import ROLES as _ROLES
+    role = user.get("role", "viewer")
+    return _ROLES.get(role, {}).get("domains", []) or user.get("domains", []) or []
+
+
+async def guard_traffic_read(user=Depends(_current_user_dep_lazy)):
+    doms = _user_domain_list(user)
+    if "*" not in doms and "traffic" not in doms:
+        raise HTTPException(status_code=403, detail="Your role does not permit access to Traffic domain data.")
+    return user
 
 
 async def _twin_audit(action: str, target: str = "-", meta: Optional[Dict[str, Any]] = None):
@@ -798,7 +887,18 @@ async def broadcast(kind: str, data: Any):
     if not state["clients"]:
         return
     payload = {"kind": kind, "data": data}
+    # Determine which domain this envelope belongs to (for RBAC filtering)
+    envelope_domain = None
+    if isinstance(data, dict):
+        envelope_domain = data.get("domain")
+    # traffic snapshot envelopes (kind=="snapshot") always belong to the traffic domain
+    if envelope_domain is None and kind == "snapshot":
+        envelope_domain = "traffic"
     for client in list(state["clients"]):
+        allowed = getattr(client, "_allowed_domains", None)
+        if envelope_domain and allowed is not None:
+            if not ("*" in allowed or envelope_domain in allowed):
+                continue  # RBAC: withhold this envelope from this client
         try:
             await client.send_json(payload)
         except Exception:

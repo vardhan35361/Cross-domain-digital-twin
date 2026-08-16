@@ -68,7 +68,7 @@ export default function PlatformHome() {
 
   const allowed = (id) => {
     const domainsAllowed = user?.domains || [];
-    return domainsAllowed.includes("*") || domainsAllowed.includes(id) || domainsAllowed.length === 0;
+    return domainsAllowed.includes("*") || domainsAllowed.includes(id);
   };
 
   const domainIds = ["traffic", "hospital", "building", "industrial", "energy", "water"];
@@ -106,13 +106,14 @@ export default function PlatformHome() {
         <div className="domain-tile-grid" data-testid="platform-domain-tiles">
           {domainIds.map(id => {
             const meta = DOMAIN_META[id];
-            const st = statusFromSnapshot(id, (snapshots || {})[id]);
             const enabled = allowed(id);
+            const st = enabled ? statusFromSnapshot(id, (snapshots || {})[id]) : { label: "RESTRICTED", tone: "slate" };
             const Icon = meta.icon;
             return (
               <Link key={id} to={enabled ? `/${id}` : "#"}
                 className={`domain-tile domain-tile-${meta.tone} ${!enabled ? "domain-tile-locked" : ""}`}
                 data-testid={`platform-tile-${id}`}
+                data-locked={!enabled}
                 style={{"--accent": meta.accent}}
                 onClick={e => { if (!enabled) e.preventDefault(); }}>
                 <div className="dt-icon"><Icon size={28}/></div>
@@ -122,10 +123,10 @@ export default function PlatformHome() {
                   <div className="dt-status">
                     <i className={`dt-dot dt-dot-${st.tone}`}/>
                     <b>{st.label}</b>
-                    {!enabled && <em>ACCESS RESTRICTED</em>}
+                    {!enabled && <em>🔒 NOT AUTHORISED</em>}
                   </div>
                 </div>
-                <span className="dt-arrow">→</span>
+                <span className="dt-arrow">{enabled ? "→" : "🔒"}</span>
               </Link>
             );
           })}

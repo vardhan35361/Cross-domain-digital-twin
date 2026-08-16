@@ -130,12 +130,16 @@ const BRANDS = {
 };
 
 export default function Sidebar() {
-  const { user, has } = useAuth();
+  const { user, has, hasDomain } = useAuth();
   const { activeDomain } = useDomains();
   const key = activeDomain || "platform";
   const brand = BRANDS[key];
   const rawNav = key === "platform" ? PLATFORM_NAV : (key === "traffic" ? TRAFFIC_NAV : domainNav(key));
-  const items = rawNav.filter(n => has(n.perm) || n.perm === "overview");
+  const items = rawNav.filter(n => {
+    if (!has(n.perm) && n.perm !== "overview") return false;
+    // Platform-level nav: hide domain entries user cannot access, but still show as locked
+    return true;
+  });
   return (
     <aside className={`side-rail side-rail-${key}`} data-testid="sidebar-nav" data-domain={key}>
       <div className="brand-mark" data-testid="brand-mark">
@@ -144,16 +148,29 @@ export default function Sidebar() {
       </div>
       <div className="rail-status" data-testid={`sidebar-mode-${key}`}><span className="pulse-dot" /> {brand.mode}</div>
       <nav className="rail-nav">
-        {items.map(({to, icon:Icon, label, key: itemKey, badge}) => (
-          <NavLink key={itemKey} to={to}
-            end={to === "/" || to === "/traffic" || to === `/${activeDomain}`}
-            className={({isActive}) => isActive ? "rail-item active" : "rail-item"}
-            data-testid={`nav-${itemKey}`}>
-            <Icon size={15} />
-            <span>{label}</span>
-            {badge && <b>{String(badge).padStart(2,"0")}</b>}
-          </NavLink>
-        ))}
+        {items.map(({to, icon:Icon, label, key: itemKey, badge}) => {
+          // Detect domain-scoped platform links (/traffic, /hospital ...) and lock them if no access
+          const domainMatch = to.match(/^\/(traffic|hospital|building|industrial|energy|water)$/);
+          const dom = domainMatch ? domainMatch[1] : null;
+          const locked = dom && !hasDomain(dom);
+          if (locked) {
+            return (
+              <div key={itemKey} className="rail-item rail-locked" data-testid={`nav-${itemKey}-locked`} title="Restricted for your role">
+                <Icon size={15}/> <span>{label}</span> <b className="lock-badge">🔒</b>
+              </div>
+            );
+          }
+          return (
+            <NavLink key={itemKey} to={to}
+              end={to === "/" || to === "/traffic" || to === `/${activeDomain}`}
+              className={({isActive}) => isActive ? "rail-item active" : "rail-item"}
+              data-testid={`nav-${itemKey}`}>
+              <Icon size={15} />
+              <span>{label}</span>
+              {badge && <b>{String(badge).padStart(2,"0")}</b>}
+            </NavLink>
+          );
+        })}
       </nav>
       <div className="rail-bottom">
         {user && user !== false && (
