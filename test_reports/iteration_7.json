@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 7 — targeted re-verification of 3 fixes from iter_6 plus full backend regression. (1) DomainSwitcher chip highlight now correctly follows URL — direct nav to /domains/hospital, /domains/building, /domains/industrial, /domains/energy, /domains/water each lights only the matching chip; refresh on /domains/building keeps building on and traffic off; nav back to / returns highlight to traffic. Verified via Playwright by scraping .on class on all 6 chips at every step. (2) Alert dedup on hospital Emergency surge — after 16s of scenario ticks, top-8 alerts contain 5 unique dedup_keys (dept-er/pediatric/icu/maternity/or-capacity) with ZERO duplicates. (3) Data-source shape truthful — /api/data-sources returns api-tomtom=OFFLINE (status='not configured') and api-openweather=OFFLINE with 0 LIVE rows overall; code path now uses os.environ.get('TOMTOM_API_KEY') gate instead of `if False`. Regression: pytest /app/tests/test_twins_domains.py = 28/28 PASS in 19.66s (iter_6 report said 29 but actual collected count is 28; suite unchanged and complete).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/tests/test_twins_domains.py",
+    "/app/test_reports/pytest/twins_domains_iter7.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "DomainSwitcher.jsx useEffect approach is fine but couples URL parsing to the switcher component; if another consumer of DomainContext mounts before it, activeDomain will briefly mismatch. Cleaner long-term: derive activeDomain inside DomainContext via useLocation, OR use useParams inside DomainTwin route element.",
+    "twins.py still keeps hospital events unbounded per tick before slicing to 40 — fine for demo scale but O(n) alloc every 2s.",
+    "twins.py store lives in FastAPI app.state — a backend restart still zeroes all domain ticks/scenarios (documented limitation, not blocking)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (28/28)", "frontend": "100% — all 3 targeted UI scenarios pass"},
+  "test_credentials": "super@hyderabad.gov.in / Hyderabad@2026",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "iter_6 chip-highlight bug is fixed. Alert dedup keys work (dedup_key field on hospital alerts, top-8 check). Data-source LIVE flip is env-gated (TOMTOM_API_KEY / OPENWEATHER_API_KEY). Suite count in iter_6 summary said 29 but actual collected/pass is 28 — suite itself is unchanged from iter_6; no missing test.",
+  "rca of the issue": "All 3 iter_6 items resolved. Chip fix: DomainSwitcher.jsx now runs a useEffect on location.pathname that calls setActiveDomain(match[1]) when path is /domains/:id and resets to 'traffic' when path is '/'. Dedup fix: hospital_tick now stamps each capacity alert with dedup_key='dept-<id>-capacity' and skips insert if the same key exists in state.alerts[:8]. LIVE flip fix: TomTom/OpenWeather rows now read os.environ.get('*_API_KEY') to choose LIVE vs OFFLINE — remains OFFLINE with keys unset (verified)."
+}

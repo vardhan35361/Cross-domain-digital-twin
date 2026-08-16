@@ -19,6 +19,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 
 from auth import ROLES, SEED_ACCOUNTS, build_router as build_auth_router, record_audit, seed_users
+from twins import build_twins_router, init_all_domains, tick_all_domains
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -188,6 +189,7 @@ state: Dict[str, Any] = {
     "convoy": None,
     "signal_overrides": {},
     "started_at": time.time(),
+    "domain_store": init_all_domains(),
 }
 
 HYDERABAD_COORDS = {"lat": 17.3850, "lon": 78.4867}
@@ -664,6 +666,7 @@ app.include_router(router)
 auth_router_bundle = build_auth_router(db, lambda: state)
 auth_router, _current_user_dep, _require_perm_dep, _record_audit = auth_router_bundle
 app.include_router(auth_router)
+app.include_router(build_twins_router(lambda: state["domain_store"]))
 app.add_middleware(CORSMiddleware, allow_credentials=True,
                    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
                    allow_methods=["*"], allow_headers=["*"])
@@ -746,6 +749,8 @@ async def simulation_loop():
                 state["convoy"]["status"] = "completed"
         state["history"].append({"tick": state["tick"], "time": state["updated_at"], "metrics": metrics()})
         state["history"] = state["history"][-120:]
+        # Tick every registered non-traffic domain
+        tick_all_domains(state["domain_store"])
         await broadcast("snapshot", snapshot())
 
 @app.on_event("startup")

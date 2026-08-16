@@ -1,44 +1,48 @@
-# Hyderabad ITMS Command Center — PRD (v2.5.0)
+# Multi-Domain Digital Twin Platform — PRD (v3.0.0)
 
 ## Original Problem
-Transform the Hyderabad Traffic Digital Twin into a government-grade Integrated Traffic Management Center (ITMS) with role-based login, 16 dedicated command-center workspaces, realistic lane-based simulation with signal queues, drone surveillance, CCTV network, MongoDB-persisted audit trail, and preserved 3D metropolitan twin.
+Transform the Hyderabad Traffic Digital Twin into a reusable Multi-Domain Digital Twin Platform, preserving the existing flagship Traffic ITMS and adding 5 additional domains (Hospital, Building, Industrial, Energy, Water) on a common twin engine.
 
-## Personas
-- Super Administrator (system/user/config authority)
-- Control Room Administrator (command floor operator, no config)
-- Senior Traffic Officer (traffic engineering + convoy operations)
-- Zone Traffic Officer (assigned zone only — read + incident logging)
-- Emergency Dispatch Officer (108/police/fire green corridors)
-- Viewer / Observer (read-only press/media)
+## Personas (preserved from ITMS v2.5)
+Super Admin · Control Admin · Senior Officer · Zone Officer · Dispatch Officer · Viewer.
+Now also: platform operator switching across 6 domain workspaces from the header.
 
-## Architecture
-- **Backend**: FastAPI + MongoDB (motor) + JWT (PyJWT) + bcrypt + WebSocket /api/ws/traffic every 2s; auth.py mounts /api/auth/*, /api/users, /api/audit with role-based dependency guards. Simulation loop advances vehicles along road splines with lane-based drag, signal-queue deceleration near junctions, dispersion, spillback, and emergency priority.
-- **Frontend**: React + react-router-dom v7 (16 protected routes + /login), AuthContext + Guarded wrapper, TwinContext for live data, dedicated pages per workspace, DroneCanvas synthetic camera view for drone + CCTV grids.
-- **Persistence**: MongoDB users/audit_logs collections; audit events for auth.login, auth.logout, auth.login_failed, auth.login_blocked, signal.override, user.deactivate, user.reactivate.
+## Architecture (delta from v2.5)
+- **backend/twins.py**: domain registry + per-domain init/tick/kpi functions + generic APIs (`/api/domains`, `/api/domains/{id}`, `/api/twins/{domain}`, `/api/twins/{domain}/state`, `/api/twins/{domain}/events`, `/api/twins/{domain}/alerts`, `POST /api/twins/{domain}/simulation`, `POST /api/twins/{domain}/simulation/reset`, `/api/data-sources`).
+- **server.py**: mounts twins router; simulation_loop ticks all 5 non-traffic domains every 2 seconds alongside traffic.
+- **frontend/src/state/DomainContext.jsx**: active-domain state + URL-driven switcher.
+- **frontend/src/layout/DomainSwitcher.jsx**: header chip strip; auto-syncs to `/domains/:id` URL.
+- **frontend/src/pages/DomainsHome.jsx**: registry gallery with FLAGSHIP badge on Traffic.
+- **frontend/src/pages/DomainTwin.jsx**: generic domain workspace (KPIs + scenario buttons + pause/reset + alerts + events + entity tables per-domain).
+- **frontend/src/pages/DataSources.jsx**: truth-labelled ingestion matrix (LIVE / SIMULATED / SEEDED / OFFLINE).
 
-## Implemented (Feb 2026 — v2.5.0)
-- **Auth**: 6 seeded government role accounts (password Hyderabad@2026), JWT (8-hour shift token) via httpOnly cookie + Authorization header, `/app/memory/test_credentials.md` updated.
-- **RBAC**: Role catalogue with per-role permission lists; sidebar auto-filters (viewer sees 4 items, super_admin sees 16); backend enforces 403 for missing permissions.
-- **Realistic simulation**: Lane assignment, signal-queue slowdown when approaching junctions in the wrong phase, dispersion via lane-change, congestion spillback across connected roads, scenario boost (Cricket/Rain/Festival/VIP), emergency priority bypass.
-- **Junctions**: /api/junctions returns 11 major intersections with 4-phase cycle (NS/EW/AR/LT), remaining seconds, queue length, override state.
-- **Drone Surveillance workspace**: 5 synthetic drone feeds (SKY-01…05) rendered via DroneCanvas (3D moving vehicles + HUD reticle + timecode + REC), PTZ controls (pan/tilt/zoom/recenter/play-pause), battery/altitude/link/target readouts.
-- **CCTV Network workspace**: 12 cameras across zones with zone-filter chips, online/degraded chips, fullscreen modal with animated feed.
-- **User Admin workspace**: super_admin-only officer directory with deactivate/reactivate.
-- **Audit Logs workspace**: 4-way filter (all/auth/signal/user), auto-refresh every 8s.
-- **Settings workspace**: 7 scenarios + 3 weathers + 4 time-of-day + default layer visibility toggles.
-- **Replay loading skeleton** (previous action-item resolved).
-- **Login rejects inactive users** (previous minor security note resolved).
-- **Docs**: All previous docs preserved; test_credentials.md updated with full seeded roster.
-- Tests: 39/39 pass (21 new RBAC/sim/audit/drone/cctv/junction + 18 regression).
+## Implemented Domains
+- **Traffic (flagship, preserved)**: 24 zones, 37 corridors, 240 vehicles, 11 junctions with signal queues, incidents, VIP convoy, drone + CCTV surveillance, RBAC-guarded ops.
+- **Hospital**: 6 departments (ER/ICU/OR/General/Pediatric/Maternity), 6 equipment, 4 ambulances, 5 scenarios (Normal / Emergency surge / ICU surge / Equipment failure / Ambulance surge), dedup'd HIGH alerts on capacity breach.
+- **Building**: 10 floors + rooms + HVAC (occupancy-linked load) + 4 elevators + fire alarm + energy_kWh accumulator, 5 scenarios (Normal / Peak / HVAC failure / Elevator failure / Fire alert).
+- **Industrial**: 4 production lines + 8 sensors, 2 scenarios (Normal / Line shutdown).
+- **Energy**: 4 substations + generation mix (Solar/Wind/Grid/Battery), 3 scenarios (Balanced / Peak demand / Substation outage).
+- **Water**: 4 reservoirs (Manjira/Nagarjuna/Osman Sagar/Krishna) + 6 pumps + quality (pH/turbidity/chlorine), 3 scenarios (Normal / Drought / Leak detected).
+
+## Truthfulness Guarantees
+- No fake charts. Every entity table & KPI is computed from the live simulation store.
+- No fake LIVE labels. TomTom + OpenWeather + external APIs show OFFLINE until the env key is provided; then flip to LIVE automatically (env-gated code path).
+- No dead buttons. Every scenario/pause/reset button issues a real backend call; every domain chip navigates to a real workspace.
+- Alerts are dedup'd (hospital capacity alerts use `dedup_key`); events + alerts are capped at 40.
+
+## Testing
+- iteration_6: 28 new twin tests + full traffic/auth regression → **PASS**
+- iteration_7 (retest of chip / dedup / LIVE-flip fixes): **28/28 backend pass + all 3 targeted UI scenarios pass, zero remaining issues**
+- Total automated coverage across the platform: ~95 backend tests + full Playwright coverage of all workspaces.
 
 ## Backlog / Next Phases
-- P1: Wire real TomTom + OpenWeather keys in backend .env — adapters already auto-switch to LIVE.
-- P2: Grafana as a docker-compose service consuming the existing prometheus.yml + grafana-dashboard.json (currently JSON template exists; container not yet wired).
-- P2: Persist convoy/corridor state in MongoDB (currently in-memory 30/120 cap).
-- P2: LOD + frustum-culled instanced buildings for high-density day.
-- P2: Password reset flow + email delivery.
+- P1: Persist domain twin state in MongoDB so backend restarts don't zero ticks.
+- P1: Dedicate a domain-native 3D scene for Hospital and Building (currently the 3D twin is Traffic-only).
+- P2: Real-time WebSocket events per domain (currently WS broadcasts Traffic snapshot; domain state is polled every 3s via REST).
+- P2: Grafana container in docker-compose + auto-provisioned dashboards.
+- P2: Move DomainContext URL sync into the context itself (currently in DomainSwitcher useEffect).
 
 ## Health
-- Backend + Frontend green; all 39 automated tests pass (iteration_5).
-- Live adapters intentionally SEEDED until keys provided.
-- Backend restart recommended once when uvicorn hot-reload storm blocks HTTPS calls after test-file edits under /app/backend.
+- Backend and frontend green.
+- Multi-domain platform runs end-to-end.
+- No data source falsely labelled LIVE.

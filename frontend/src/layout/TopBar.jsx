@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Bell, ChevronRight, LogOut, Radio, Sparkles } from "lucide-react";
 import { useAuth } from "../state/AuthContext";
 import { useTwin } from "../state/TwinContext";
+import DomainSwitcher from "./DomainSwitcher";
 
 export default function TopBar({ title, kicker, onOpenAssistant }) {
   const { overview, incidents, liveFeeds, lastUpdate } = useTwin();
@@ -28,6 +29,7 @@ export default function TopBar({ title, kicker, onOpenAssistant }) {
           {user && <button className="icon-btn" onClick={logout} data-testid="logout-button" title={`Sign out ${user.name}`} aria-label="logout"><LogOut size={15}/></button>}
         </div>
       </header>
+      <DomainSwitcher />
       <div className="ticker" data-testid="live-alert-ticker">
         <Radio size={14}/><strong>LIVE ALERT</strong>
         <span>{criticalIncident ? `${criticalIncident.type} · ${criticalIncident.location}` : "All corridors nominal"}</span>

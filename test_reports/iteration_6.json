@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 6 — full validation of 6-domain multi-twin platform on top of preserved Traffic ITMS. Backend: created /app/tests/test_twins_domains.py (29 tests) — 29/29 PASS (one test caught /emergency/routes being POST-only, fixed test to remove that GET check). Coverage: /api/domains order+shape (traffic-flagship first, hospital, building, industrial, energy, water), /api/domains/{id} 200+404, /api/twins/hospital state{depts,equipment,ambulances,events,alerts} + all 6 KPIs, /api/twins/building 10 floors + 4 elevators + hvac + energy_kwh + KPIs, /api/twins/{industrial,energy,water} non-empty state+KPIs, POST /twins/hospital/simulation propagates scenario 'Emergency surge' (tick advanced 191+ across 6s window), pause stops tick (running:false → tick stable over 5s), invalid scenario→400, unknown domain→404, POST /twins/building/simulation/reset zeroes tick and regenerates 10 floors, /api/data-sources returns 10 rows with correct labels (sim-hospital SIMULATED, seed-hyderabad-zones SEEDED, api-tomtom + api-openweather OFFLINE, ZERO LIVE rows), /api/twins/traffic returns note pointer, POST /twins/traffic/simulation→400. Traffic regression: /health /overview /roads /vehicles /heatmap /predictions /incidents /replay/corridors /system/health /junctions /drones /cameras all 200, /auth/login super_admin ok, /users + /audit require auth (401 anon, 200 with super Bearer). Frontend Playwright verified on external URL: login-page renders, super_admin login → command shell with 6 domain-chip-* buttons in TopBar, sidebar contains nav-domains + nav-data-sources, /domains renders page-domains with 6 domain-card-* and FLAGSHIP badge on traffic card, /domains/hospital renders page-twin-hospital with all 5 scenario buttons + domain-sim-toggle + domain-sim-reset + hospital-departments-panel + hospital-equipment-panel, clicking domain-scenario-emergency triggers POST and 6 domain-alert-* rows appear within 8s (Emergency at 100% capacity, ICU at 100% capacity, etc), page-twin-building + page-twin-industrial + page-twin-energy + page-twin-water all render, /data-sources shows all 10 expected datasource-row-* ids in correct order, chip navigation works (chip-hospital→/domains/hospital, chip-traffic→/).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "DomainSwitcher (TopBar)", "issue": "On /domains/hospital the ACTIVE DOMAIN chip strip highlights TRAFFIC (teal) instead of HOSPITAL — page body and URL are correct, only the chip highlight is stale until a chip is explicitly clicked. Suggest syncing DomainContext.activeDomain from the :domain route param on mount.", "selector": "[data-testid='domain-chip-hospital']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/tests/test_twins_domains.py",
+    "/app/tests/test_auth_rbac.py",
+    "/app/backend/tests/test_traffic_api.py",
+    "/app/test_reports/pytest/twins_domains.xml"
+  ],
+  "action_items": [
+    "(LOW) Sync DomainContext.activeDomain from :domain URL param so header chip highlight matches the workspace being viewed on direct navigation/refresh."
+  ],
+  "critical_code_review_comments": [
+    "twins.py line 432: `\"type\": \"LIVE\" if False else \"OFFLINE\"` is dead code — the `if False` should be replaced with an actual env check (e.g. `if os.environ.get('TOMTOM_API_KEY') else`) so LIVE flips on automatically when the key is provisioned. Currently there is no path to ever emit LIVE for TomTom.",
+    "twins.py uses in-memory `store` in FastAPI app state — a backend restart (e.g. hot reload after code edit) zeroes all domain ticks/scenarios. Acceptable for demo; for durability persist to Mongo like Traffic does.",
+    "twins.py events lists are unbounded across ticks but sliced to 40 at end of each tick — fine. Alerts insert-at-0 pattern grows linearly per scenario tick; consider dedup by twin_id+message to avoid 6 identical HIGH alerts (observed on Emergency surge — 6 duplicate 'HIGH dept-* at 100% capacity' rows).",
+    "twins.py hospital_tick: elevator variable named `l` (ambiguous single-letter) in building_kpis line 168 — lint nit.",
+    "DomainContext / DomainSwitcher: activeDomain not derived from route — see UI bug above.",
+    "Prior iter comment still valid: uvicorn --reload watches /app/backend recursively; keep new pytest files under /app/tests to avoid reload storm (this iteration honoured that)."
+  ],
+  "updated_files": ["/app/tests/test_twins_domains.py"],
+  "success_rate": {"backend": "100% (29/29 new twin tests + prior 39/39 auth+traffic regression untouched)", "frontend": "100% of new multi-domain flows verified, 1 low-severity chip-highlight bug"},
+  "test_credentials": "See /app/memory/test_credentials.md — super@hyderabad.gov.in / Hyderabad@2026 used for admin flows.",
+  "seed_data_creation": "None — all domain state initialised in-memory by backend on startup via twins.init_all_domains().",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Multi-domain platform now live. Backend twin state lives in-memory on FastAPI app state — backend restart resets all ticks/scenarios (so if you restart backend, don't expect tick to persist). Simulation loop ticks every 2s; scenario propagation validated at ~6s. Data sources endpoint hardcodes `if False` for TomTom LIVE check — dead code path, flagged. Header domain-switcher chip highlight is stale on direct nav — page body is correct so this is cosmetic only. All 6 domain workspaces render, all 10 datasource rows present, no LIVE labels on unconfigured sources (truth rule honoured). Keep new pytest files under /app/tests (NOT /app/backend/tests) to avoid uvicorn --reload storm.",
+  "rca of the issue": "UI bug (chip highlight stale on /domains/:domain direct nav): DomainContext initialises activeDomain from localStorage / default 'traffic' but does not read the :domain route param. Fix: in DomainTwin.jsx useEffect on mount, call `switchDomain(params.domain, {navigate:false})`; OR make DomainSwitcher.jsx derive `activeDomain` from `useParams().domain ?? contextActiveDomain`."
+}

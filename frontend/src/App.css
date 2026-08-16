@@ -659,3 +659,30 @@ button { cursor: pointer; font-family: inherit; }
   .drone-grid { grid-template-columns: 1fr; }
   .settings-grid { grid-template-columns: 1fr; }
 }
+
+/* ===== Domain switcher + registry ============================ */
+.domain-switcher { display: flex; align-items: center; gap: 14px; padding: 10px 14px; margin: 0 0 12px;
+  background: linear-gradient(90deg, rgba(0,243,255,0.06), rgba(0,255,136,0.03) 60%, transparent);
+  border: 1px solid var(--line); }
+.domain-registry-link { color: var(--cyan); font: 500 8px var(--font-mono); letter-spacing: 0.8px;
+  padding: 6px 10px; border: 1px solid var(--line); text-decoration: none; display: flex; align-items: center; gap: 6px; }
+.domain-registry-link:hover { background: rgba(0,243,255,0.08); }
+.domain-select .section-kicker { display: block; margin-bottom: 4px; }
+.domain-select-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.domain-chip { padding: 6px 10px; background: transparent; border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-2); font: 500 8px var(--font-mono); letter-spacing: 0.6px;
+  display: flex; align-items: center; gap: 6px; }
+.domain-chip.on { color: var(--cyan); border-color: var(--cyan); background: rgba(0,243,255,0.08); box-shadow: 0 0 12px rgba(0,243,255,0.14); }
+.domain-chip svg { color: currentColor; }
+
+.domain-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; padding: 4px 16px 18px; }
+.domain-card { background: rgba(7, 20, 35, 0.72); border: 1px solid var(--line); padding: 16px;
+  text-decoration: none; color: var(--text-1); display: grid; gap: 10px; transition: border-color .2s, transform .15s; }
+.domain-card:hover { border-color: var(--cyan); transform: translateY(-2px); }
+.domain-card-head { display: flex; align-items: center; gap: 10px; }
+.domain-glyph { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--line); color: var(--cyan); }
+.domain-card-head strong { display: block; font: 500 14px var(--font-display); color: var(--text-0); }
+.domain-card p { margin: 0; font-size: 11px; color: var(--text-2); line-height: 1.5; }
+.domain-card-meta { display: flex; align-items: center; gap: 12px; color: var(--text-3); font: 500 8px var(--font-mono); }
+.domain-card-meta b { color: var(--cyan); margin-left: 4px; }
+.domain-card-meta svg { margin-left: auto; color: var(--cyan); }

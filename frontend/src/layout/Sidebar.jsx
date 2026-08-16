@@ -1,8 +1,9 @@
 import { NavLink } from "react-router-dom";
-import { Activity, AlertTriangle, BarChart3, Camera, Cog, Cpu, Crown, Database, Fingerprint, Map, Plane, Radio, Route, ShieldAlert, Signal, Sparkles, TowerControl, UsersRound } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, Camera, Cog, Cpu, Crown, Database, Fingerprint, Layers3, Map, Plane, Radio, Route, ShieldAlert, Signal, Sparkles, TowerControl, UsersRound } from "lucide-react";
 import { useAuth } from "../state/AuthContext";
 
 const NAV = [
+  { to: "/domains", icon: Layers3, label: "Digital twins", key: "domains", perm: "overview" },
   { to: "/", icon: TowerControl, label: "City overview", key: "overview", perm: "overview" },
   { to: "/twin", icon: Map, label: "3D digital twin", key: "twin", perm: "twin" },
   { to: "/analytics", icon: BarChart3, label: "Traffic analytics", key: "analytics", perm: "analytics" },
@@ -15,6 +16,7 @@ const NAV = [
   { to: "/cctv", icon: Camera, label: "CCTV network", key: "cctv", perm: "cctv" },
   { to: "/replay", icon: Radio, label: "Replay & timeline", key: "replay", perm: "replay" },
   { to: "/live", icon: Activity, label: "Live data", key: "live", perm: "live" },
+  { to: "/data-sources", icon: Database, label: "Data sources", key: "data-sources", perm: "overview" },
   { to: "/system", icon: Cpu, label: "System monitor", key: "system", perm: "*" },
   { to: "/users", icon: UsersRound, label: "User admin", key: "users", perm: "*" },
   { to: "/audit", icon: Fingerprint, label: "Audit logs", key: "audit", perm: "audit" },

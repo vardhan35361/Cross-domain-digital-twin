@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./state/AuthContext";
+import { DomainProvider } from "./state/DomainContext";
 import { TwinProvider } from "./state/TwinContext";
 import Sidebar from "./layout/Sidebar";
 import TopBar from "./layout/TopBar";
@@ -22,6 +23,9 @@ import CctvNetwork from "./pages/CctvNetwork";
 import UserAdmin from "./pages/UserAdmin";
 import AuditLogs from "./pages/AuditLogs";
 import Settings from "./pages/Settings";
+import DomainsHome from "./pages/DomainsHome";
+import DomainTwin from "./pages/DomainTwin";
+import DataSources from "./pages/DataSources";
 import "@/App.css";
 
 const HEADERS = {
@@ -41,12 +45,15 @@ const HEADERS = {
   "/users": { title: <>User <em>administration</em></>, kicker: "ACCESS CONTROL" },
   "/audit": { title: <>Audit <em>& security</em></>, kicker: "ACTIVITY LOG" },
   "/settings": { title: <>Simulation <em>settings</em></>, kicker: "PLATFORM CONFIG" },
+  "/domains": { title: <>Digital twin <em>registry</em></>, kicker: "MULTI-DOMAIN PLATFORM" },
+  "/data-sources": { title: <>Data <em>sources</em></>, kicker: "INGESTION CONTROL" },
 };
 
 function AppShell() {
   const [assistantOpen, setAssistantOpen] = useState(false);
   const location = useLocation();
-  const header = HEADERS[location.pathname] || HEADERS["/"];
+  const header = HEADERS[location.pathname]
+    || (location.pathname.startsWith("/domains/") ? { title: <>Digital <em>twin</em></>, kicker: "DOMAIN WORKSPACE" } : HEADERS["/"]);
   return (
     <div className="command-shell" data-testid="command-shell">
       <Sidebar />
@@ -69,6 +76,9 @@ function AppShell() {
           <Route path="/users" element={<UserAdmin />} />
           <Route path="/audit" element={<AuditLogs />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/domains" element={<DomainsHome />} />
+          <Route path="/domains/:domain" element={<DomainTwin />} />
+          <Route path="/data-sources" element={<DataSources />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <footer className="footer-bar">
@@ -93,7 +103,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/*" element={<Guarded><TwinProvider><AppShell/></TwinProvider></Guarded>} />
+      <Route path="/*" element={<Guarded><DomainProvider><TwinProvider><AppShell/></TwinProvider></DomainProvider></Guarded>} />
     </Routes>
   );
 }
