@@ -1,8 +1,9 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { AlertCircle, Building2, Cpu, Droplet, Factory, Hospital, Play, Pause, RotateCcw, Zap } from "lucide-react";
 import { api } from "../services/api";
 import { Panel, Metric } from "../shared/Panel";
+import DomainScene from "../scene/DomainScene";
 
 const ICONS = { traffic: Cpu, hospital: Hospital, building: Building2,
                 industrial: Factory, energy: Zap, water: Droplet };
@@ -14,13 +15,44 @@ export default function DomainTwin() {
   const nav = useNavigate();
   const [snap, setSnap] = useState(null);
   const [error, setError] = useState("");
+  const [wsStatus, setWsStatus] = useState("CONNECTING");
+  const wsRef = useRef(null);
 
   useEffect(() => {
     setSnap(null); setError("");
-    let id;
-    const load = () => api.twin(domain).then(setSnap).catch(e => setError(e?.response?.data?.detail || e.message || "Domain not available"));
-    load(); id = setInterval(load, 3000);
-    return () => clearInterval(id);
+    // Initial REST snapshot for immediate render
+    api.twin(domain).then(setSnap).catch(e => setError(e?.response?.data?.detail || e.message || "Domain not available"));
+
+    // Live WebSocket subscription — receives {kind:'domain_snapshot', data:{domain,state,kpis,tick,scenario,running}}
+    const wsUrl = `${(process.env.REACT_APP_BACKEND_URL || "").replace(/^http/, "ws")}/api/ws/traffic`;
+    let alive = true;
+    try {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      ws.onopen = () => alive && setWsStatus("CONNECTED");
+      ws.onclose = () => alive && setWsStatus("DISCONNECTED");
+      ws.onerror = () => alive && setWsStatus("DISCONNECTED");
+      ws.onmessage = ev => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.kind === "domain_snapshot" && msg.data?.domain === domain) {
+            setSnap(prev => ({
+              domain,
+              definition: prev?.definition,
+              state: msg.data.state,
+              kpis: msg.data.kpis,
+              tick: msg.data.tick,
+              scenario: msg.data.scenario,
+              running: msg.data.running,
+              updated_at: new Date().toISOString(),
+            }));
+          }
+        } catch (_) { /* noop */ void 0; }
+      };
+    } catch (_) {
+      setWsStatus("DISCONNECTED");
+    }
+    return () => { alive = false; try { wsRef.current?.close(); } catch (_) { void 0; } };
   }, [domain]);
 
   if (error) return <div className="page" data-testid="page-domain-error"><div className="empty-row"><AlertCircle size={14}/> {error}</div></div>;
@@ -39,8 +71,17 @@ export default function DomainTwin() {
       <div className="section-heading">
         <div><span className="section-kicker">{def.name?.toUpperCase()} DIGITAL TWIN</span>
           <h2><Icon size={22} style={{marginRight:8, verticalAlign:"middle"}}/> {def.name}</h2></div>
-        <div className="system-live"><span className="pulse-dot"/> TICK {snap.tick} · {snap.scenario}</div>
+        <div className="system-live" data-testid="domain-ws-status">
+          <span className={`pulse-dot ${wsStatus === "CONNECTED" ? "" : "muted"}`}/>
+          {wsStatus} · TICK {snap.tick} · {snap.scenario}
+        </div>
       </div>
+      <Panel kicker="3D DIGITAL TWIN" title={`${def.name} spatial model`} testId="domain-twin-3d"
+        right={<span className="live-tag">{wsStatus}</span>}>
+        <div className="twin-canvas" data-testid={`domain-3d-${domain}`}>
+          <DomainScene domain={domain} state={state}/>
+        </div>
+      </Panel>
       <div className="metrics-grid" data-testid="domain-kpis">
         {kpiEntries.slice(0, 5).map(([k, v]) => (
           <Metric key={k} label={k.replaceAll("_", " ")} value={v} tone={k.includes("alert") ? "red" : k.includes("occup") ? "amber" : "cyan"}/>

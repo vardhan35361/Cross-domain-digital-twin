@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="4" time="115.855" timestamp="2026-08-16T12:27:06.760279+00:00" hostname="agent-env-64e530c0-bcc6-4b95-ac59-6d23d80659c7"><testcase classname="tests.test_iter8_persistence_ws" name="test_mongo_persistence_survives_restart" time="62.392"><failure message="subprocess.TimeoutExpired: Command '['sudo', 'supervisorctl', 'restart', 'backend']' timed out after 29.999982148990966 seconds">tests/test_iter8_persistence_ws.py:50: in test_mongo_persistence_survives_restart
+    subprocess.run(["sudo", "supervisorctl", "restart", "backend"], check=True, timeout=30)
+/usr/local/lib/python3.11/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/subprocess.py:2141: in _communicate
+    self.wait(timeout=self._remaining_time(endtime))
+/usr/local/lib/python3.11/subprocess.py:1264: in wait
+    return self._wait(timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/subprocess.py:2045: in _wait
+    raise TimeoutExpired(self.args, timeout)
+E   subprocess.TimeoutExpired: Command '['sudo', 'supervisorctl', 'restart', 'backend']' timed out after 29.999982148990966 seconds</failure></testcase><testcase classname="tests.test_iter8_persistence_ws" name="test_all_five_domains_persisted_in_mongo" time="39.433" /><testcase classname="tests.test_iter8_persistence_ws" name="test_ws_domain_snapshot_all_five_domains" time="13.683" /><testcase classname="tests.test_iter8_persistence_ws" name="test_ws_arrives_within_5s" time="0.221" /></testsuite></testsuites>

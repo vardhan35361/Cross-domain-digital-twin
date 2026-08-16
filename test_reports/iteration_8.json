@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 8 — validated the four P0 upgrades end-to-end. (1) MongoDB restart survival: set hospital scenario to 'Emergency surge', waited 32s past the tick-15 checkpoint, ran `sudo supervisorctl restart backend`, then re-hit GET /api/twins/hospital — scenario preserved and tick did NOT regress (pre=15+, post>=pre). Also verified after a second restart, all 5 non-traffic domains still had tick>=15. Mongo db.twin_state confirmed to contain docs for hospital/building/industrial/energy/water. (2) WebSocket domain envelope: connecting to /api/ws/traffic delivers initial 'snapshot' plus 'domain_snapshot' messages within 5s and all 5 domains broadcast inside a single 12s window with shape {domain,state,kpis,tick,scenario,running}. (3) Backend regression: 28/28 in /app/tests/test_twins_domains.py PASS (health, twins/*, domains, data-sources, traffic public endpoints, auth, users/audit RBAC). (4) Frontend: Playwright verified /domains/{hospital,building,industrial,energy,water} each renders sidebar-mode-{d}, domain-3d-{d} with a real <canvas>, domain-ws-status transitions to CONNECTED within ~3s, KPI grid populates (4-5 metrics per domain), TRAFFIC_NAV (nav-twin) is absent on non-traffic pages and domain nav (nav-d-twin, etc.) is present, chip .on class follows URL. Chain traffic→hospital→building→industrial→energy→water→traffic transitions cleanly with sidebar mode and scene testid flipping every hop. Deep-link /domains/energy renders sidebar-mode-energy and chip-on on first paint. Scenario mutation via UI (domain-scenario-emergency on hospital) propagated to the WS status header (tick 305→308, scenario 'Normal operations'→'Emergency surge') and 6 domain-alert-* rows appeared within 6s without a manual reload.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/tests/test_twins_domains.py",
+    "/app/tests/test_iter8_persistence_ws.py",
+    "/app/test_reports/pytest/iter8_domains.xml",
+    "/app/test_reports/pytest/iter8_persist_ws.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 813 lines — still under the 700-line soft cap after twins split, but simulation_loop() is >90 lines mixing vehicle physics, congestion, convoy, twin ticks, persistence and broadcast. Consider splitting into `_tick_traffic()` / `_tick_domains()` / `_broadcast_all()` helpers for testability.",
+    "_persist_domain_state() swallows exceptions with logger.debug — a Mongo outage would silently degrade to in-memory only. Elevate to warning and expose via /api/system/health so operators see the last successful checkpoint timestamp.",
+    "DomainTwin.jsx opens a fresh WebSocket per domain mount and closes on unmount — chain-nav across 6 domains opens/closes 6 sockets. Consider hoisting the socket into DomainContext or a shared hook (WsProvider) so a single connection multiplexes.",
+    "twins.py hospital events still slice to 40 after unbounded append per tick (documented last iter); low priority.",
+    "Sidebar.jsx uses NavLink `end` prop conditionally — works, but the special-case string comparison `to === /domains/${activeDomain}` is fragile if TWIN nav path scheme changes; consider making each nav entry declare its own `end` flag."
+  ],
+  "updated_files": [
+    "/app/tests/test_iter8_persistence_ws.py (new)"
+  ],
+  "success_rate": {"backend": "100% (32/32 across both suites, incl. 2 restart-survival + 2 WS envelope tests)", "frontend": "100% — all 9 iter_8 scenarios pass"},
+  "test_credentials": "super@hyderabad.gov.in / Hyderabad@2026",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iter_8 P0 objectives all green. New file /app/tests/test_iter8_persistence_ws.py exercises Mongo restart survival (uses `sudo supervisorctl restart backend` with 90s timeout — do NOT lower) and validates the 'domain_snapshot' WebSocket envelope for all 5 non-traffic domains. Running the full suite takes ~3 minutes because of two backend-restart tests. If future iterations add more domains, extend NON_TRAFFIC_DOMAINS in both test files and DomainScene/Sidebar. Backend URL is stable at traffic-command-8.preview.emergentagent.com. TWIN_LIVE_ENABLED and TomTom/OpenWeather keys remain empty in this env — data-sources /api/data-sources still returns zero LIVE rows (this is expected and asserted).",
+  "rca of the issue": "N/A — no bugs discovered this iteration."
+}

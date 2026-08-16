@@ -19,7 +19,12 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 
 from auth import ROLES, SEED_ACCOUNTS, build_router as build_auth_router, record_audit, seed_users
-from twins import build_twins_router, init_all_domains, tick_all_domains
+from twins import build_twins_router, init_all_domains, tick_all_domains, KPI_FNS as _TWIN_KPI_FNS
+
+
+def _domain_kpis(domain: str, dstate: Dict[str, Any]) -> Dict[str, Any]:
+    fn = _TWIN_KPI_FNS.get(domain)
+    return fn(dstate) if fn else {}
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -751,11 +756,53 @@ async def simulation_loop():
         state["history"] = state["history"][-120:]
         # Tick every registered non-traffic domain
         tick_all_domains(state["domain_store"])
+        # Persist twin state every 15 ticks (~30s) — cheap, event-driven survivability
+        if state["tick"] % 15 == 0:
+            await _persist_domain_state()
+        # Broadcast per-domain snapshots so the frontend can consume live WebSocket updates
+        for domain, dstate in state["domain_store"].items():
+            await broadcast("domain_snapshot", {"domain": domain, "state": dstate,
+                                                "kpis": _domain_kpis(domain, dstate),
+                                                "tick": dstate.get("tick", 0),
+                                                "scenario": dstate.get("scenario"),
+                                                "running": dstate.get("running", True)})
         await broadcast("snapshot", snapshot())
+
+async def _load_domain_store() -> Dict[str, Any]:
+    store = init_all_domains()
+    try:
+        cursor = db.twin_state.find({})
+        async for doc in cursor:
+            domain = doc.get("domain")
+            if domain in store and "state" in doc:
+                # merge persisted state (scenario, tick, entities) on top of freshly initialised structure
+                for k, v in doc["state"].items():
+                    store[domain][k] = v
+    except Exception as exc:
+        logger.warning("Twin state restore skipped: %s", exc)
+    return store
+
+
+async def _persist_domain_state() -> None:
+    try:
+        for domain, dstate in state["domain_store"].items():
+            await db.twin_state.update_one(
+                {"domain": domain},
+                {"$set": {"domain": domain, "state": dstate, "updated_at": datetime.now(timezone.utc)}},
+                upsert=True,
+            )
+    except Exception as exc:
+        logger.debug("Twin persist skipped: %s", exc)
+
 
 @app.on_event("startup")
 async def startup():
     await seed_users(db)
+    try:
+        await db.twin_state.create_index("domain", unique=True)
+    except Exception:
+        pass
+    state["domain_store"] = await _load_domain_store()
     app.state.simulation_task = asyncio.create_task(simulation_loop())
 
 @app.on_event("shutdown")
