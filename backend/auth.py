@@ -1,4 +1,4 @@
-"""Authentication + RBAC + audit + user admin for the Hyderabad ITMS."""
+"""Authentication + RBAC + audit + user admin for the Multi-Domain Digital Twin Platform."""
 from __future__ import annotations
 
 import os
@@ -14,46 +14,80 @@ from pydantic import BaseModel, EmailStr, Field
 JWT_ALGORITHM = "HS256"
 ACCESS_MINUTES = 60 * 8  # 8h shift
 
+ALL_DOMAINS = ["traffic", "hospital", "building", "industrial", "energy", "water"]
+
+# Domain-scoped permission model.
+# `permissions` = platform-level features
+# `domains`     = which domain workspaces the role can operate in ("*" == all)
 ROLES = {
     "super_admin": {
         "label": "Super Administrator",
         "permissions": ["*"],
-        "description": "Full control of the ITMS platform, users, and infrastructure.",
+        "domains": ["*"],
+        "description": "Full control of the Digital Twin platform, users, domains, and infrastructure.",
     },
-    "control_admin": {
-        "label": "Control Room Administrator",
-        "permissions": ["overview", "twin", "traffic", "signals", "incidents", "emergency", "replay", "analytics", "predictive", "live", "cctv", "drones", "convoy", "audit"],
-        "description": "Runs the command floor; no system configuration.",
+    "platform_operator": {
+        "label": "Platform Operator",
+        "permissions": ["overview", "twin", "traffic", "signals", "incidents", "emergency", "replay", "analytics",
+                        "predictive", "live", "cctv", "drones", "convoy", "audit"],
+        "domains": ["*"],
+        "description": "Cross-domain monitoring, simulations, alerts and operator actions.",
     },
-    "senior_officer": {
-        "label": "Senior Traffic Officer",
-        "permissions": ["overview", "twin", "traffic", "analytics", "predictive", "convoy", "emergency", "signals", "cctv", "drones"],
-        "description": "Zone-agnostic traffic engineering + convoy operations.",
+    "traffic_operator": {
+        "label": "Traffic Operator",
+        "permissions": ["overview", "twin", "traffic", "signals", "incidents", "emergency", "replay",
+                        "analytics", "predictive", "cctv", "drones", "convoy"],
+        "domains": ["traffic"],
+        "description": "Full Traffic domain operations.",
     },
-    "zone_officer": {
-        "label": "Zone Traffic Officer",
-        "permissions": ["overview", "twin", "traffic", "incidents", "analytics", "cctv"],
-        "description": "Assigned zone monitoring, incident logging, local dispatch.",
+    "hospital_operator": {
+        "label": "Hospital Operator",
+        "permissions": ["overview", "twin", "replay", "analytics"],
+        "domains": ["hospital"],
+        "description": "Hospital digital twin operations only.",
     },
-    "dispatch_officer": {
-        "label": "Emergency Dispatch Officer",
-        "permissions": ["overview", "twin", "emergency", "replay", "convoy", "cctv", "drones"],
-        "description": "Ambulance / fire / police dispatch + green corridor control.",
+    "building_operator": {
+        "label": "Building Operator",
+        "permissions": ["overview", "twin", "replay", "analytics"],
+        "domains": ["building"],
+        "description": "Smart Building digital twin operations only.",
+    },
+    "industrial_operator": {
+        "label": "Industrial Operator",
+        "permissions": ["overview", "twin", "replay", "analytics"],
+        "domains": ["industrial"],
+        "description": "Industrial facility digital twin operations only.",
+    },
+    "energy_operator": {
+        "label": "Energy Operator",
+        "permissions": ["overview", "twin", "replay", "analytics"],
+        "domains": ["energy"],
+        "description": "Energy infrastructure digital twin operations only.",
+    },
+    "water_operator": {
+        "label": "Water Operator",
+        "permissions": ["overview", "twin", "replay", "analytics"],
+        "domains": ["water"],
+        "description": "Water infrastructure digital twin operations only.",
     },
     "viewer": {
         "label": "Viewer",
-        "permissions": ["overview", "twin", "traffic", "analytics", "predictive"],
-        "description": "Read-only observer.",
+        "permissions": ["overview", "twin", "traffic", "analytics", "predictive", "replay"],
+        "domains": ["*"],
+        "description": "Read-only observer across all domains.",
     },
 }
 
 SEED_ACCOUNTS = [
-    ("super@hyderabad.gov.in", "super_admin", "R. Verma", "ALL ZONES"),
-    ("control@hyderabad.gov.in", "control_admin", "A. Sharma", "COMMAND ROOM"),
-    ("senior@hyderabad.gov.in", "senior_officer", "S. Iyer", "TRAFFIC ENG"),
-    ("zone.gachi@hyderabad.gov.in", "zone_officer", "P. Reddy", "GACHIBOWLI"),
-    ("dispatch@hyderabad.gov.in", "dispatch_officer", "K. Rao", "108 CONTROL"),
-    ("viewer@hyderabad.gov.in", "viewer", "Media Cell", "PRESS BOX"),
+    ("super@twin.platform",       "super_admin",         "R. Verma",     "ALL DOMAINS"),
+    ("platform@twin.platform",    "platform_operator",   "A. Sharma",    "ALL DOMAINS"),
+    ("traffic@twin.platform",     "traffic_operator",    "S. Iyer",      "TRAFFIC"),
+    ("hospital@twin.platform",    "hospital_operator",   "Dr. K. Rao",   "HOSPITAL"),
+    ("building@twin.platform",    "building_operator",   "M. Kapoor",    "BUILDING"),
+    ("industrial@twin.platform",  "industrial_operator", "V. Menon",     "INDUSTRIAL"),
+    ("energy@twin.platform",      "energy_operator",     "P. Reddy",     "ENERGY"),
+    ("water@twin.platform",       "water_operator",      "N. Bose",      "WATER"),
+    ("viewer@twin.platform",      "viewer",              "Media Cell",   "OBSERVER"),
 ]
 
 
@@ -78,7 +112,7 @@ def create_access_token(user_id: str, email: str, role: str) -> str:
 async def seed_users(db) -> None:
     await db.users.create_index("email", unique=True)
     await db.audit_logs.create_index([("created_at", -1)])
-    password = os.environ.get("SEED_PASSWORD", "Hyderabad@2026")
+    password = os.environ.get("SEED_PASSWORD", "Twin@2026")
     for email, role, name, zone in SEED_ACCOUNTS:
         existing = await db.users.find_one({"email": email})
         payload = {"email": email, "role": role, "name": name, "zone": zone,
@@ -90,6 +124,12 @@ async def seed_users(db) -> None:
             await db.users.update_one({"email": email},
                 {"$set": {"password_hash": payload["password_hash"], "role": role,
                           "name": name, "zone": zone, "active": True}})
+    # Clean up legacy Hyderabad ITMS seed emails
+    legacy_emails = [
+        "super@hyderabad.gov.in", "control@hyderabad.gov.in", "senior@hyderabad.gov.in",
+        "zone.gachi@hyderabad.gov.in", "dispatch@hyderabad.gov.in", "viewer@hyderabad.gov.in",
+    ]
+    await db.users.delete_many({"email": {"$in": legacy_emails}})
 
 
 async def record_audit(db, actor: Optional[Dict[str, Any]], action: str, target: str = "-", meta: Optional[Dict[str, Any]] = None, ip: Optional[str] = None) -> None:
@@ -120,10 +160,12 @@ class UserOut(BaseModel):
 
 def user_out(doc: Dict[str, Any]) -> Dict[str, Any]:
     role = doc.get("role", "viewer")
+    role_def = ROLES.get(role, {})
     return {"id": str(doc["_id"]), "email": doc["email"], "name": doc.get("name", ""),
             "role": role, "zone": doc.get("zone"),
-            "permissions": ROLES.get(role, {}).get("permissions", []),
-            "role_label": ROLES.get(role, {}).get("label", role)}
+            "permissions": role_def.get("permissions", []),
+            "domains": role_def.get("domains", []),
+            "role_label": role_def.get("label", role)}
 
 
 def build_router(db, get_state: Callable[[], Dict[str, Any]]) -> APIRouter:
@@ -196,9 +238,10 @@ def build_router(db, get_state: Callable[[], Dict[str, Any]]) -> APIRouter:
     @router.get("/auth/accounts")
     async def seeded_accounts():
         # Non-sensitive: returns emails + roles + demo password for viva display
-        return {"password": os.environ.get("SEED_PASSWORD", "Hyderabad@2026"),
+        return {"password": os.environ.get("SEED_PASSWORD", "Twin@2026"),
                 "accounts": [{"email": e, "role": r, "name": n, "zone": z,
-                              "role_label": ROLES[r]["label"], "description": ROLES[r]["description"]}
+                              "role_label": ROLES[r]["label"], "description": ROLES[r]["description"],
+                              "domains": ROLES[r].get("domains", [])}
                              for e, r, n, z in SEED_ACCOUNTS]}
 
     # ---------- user admin (super_admin only) ----------

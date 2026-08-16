@@ -298,6 +298,7 @@ class SimulationCommand(BaseModel):
 
 class AssistantRequest(BaseModel):
     message: str
+    domain: Optional[str] = "traffic"
 
 class RouteRequest(BaseModel):
     origin: str
@@ -623,12 +624,22 @@ async def assistant_stream(input_data: AssistantRequest):
     async def generator():
         response_text = ""
         key = os.environ.get("EMERGENT_LLM_KEY")
+        domain = (input_data.domain or "traffic").lower()
+        domain_contexts = {
+            "traffic":    ("Hyderabad traffic command center", metrics()),
+            "hospital":   ("hospital command center — beds, ICU, ER queue, ambulances, equipment", _TWIN_KPI_FNS["hospital"](state["domain_store"]["hospital"]) if "hospital" in state["domain_store"] else {}),
+            "building":   ("smart building operations — HVAC, elevators, floors, occupancy, energy", _TWIN_KPI_FNS["building"](state["domain_store"]["building"]) if "building" in state["domain_store"] else {}),
+            "industrial": ("industrial plant operations — production lines, machines, sensors, quality", _TWIN_KPI_FNS["industrial"](state["domain_store"]["industrial"]) if "industrial" in state["domain_store"] else {}),
+            "energy":     ("electrical grid operations — substations, transformers, feeders, generation", _TWIN_KPI_FNS["energy"](state["domain_store"]["energy"]) if "energy" in state["domain_store"] else {}),
+            "water":      ("water network operations — reservoirs, pipelines, pumps, valves, quality", _TWIN_KPI_FNS["water"](state["domain_store"]["water"]) if "water" in state["domain_store"] else {}),
+        }
+        ctx_name, ctx_metrics = domain_contexts.get(domain, domain_contexts["traffic"])
         if key:
             try:
                 from emergentintegrations.llm.chat import LlmChat, StreamDone, TextDelta, UserMessage
-                chat = LlmChat(api_key=key, session_id=f"traffic-{uuid.uuid4().hex}",
-                               system_message="You are AIRA, the calm Hyderabad traffic command center assistant. Use this live context: "
-                               + str(metrics()) + ". Give concise operational answers with route, time, and confidence when relevant.")
+                chat = LlmChat(api_key=key, session_id=f"{domain}-{uuid.uuid4().hex}",
+                               system_message=f"You are AIRA, the calm digital-twin operations assistant for {ctx_name}. Use this live context: "
+                               + str(ctx_metrics) + ". Give concise operational answers with metrics and confidence when relevant.")
                 chat = chat.with_model("openai", "gpt-5.4")
                 stream = chat.stream_message(UserMessage(text=input_data.message))
                 deadline = asyncio.get_running_loop().time() + 18
@@ -649,9 +660,8 @@ async def assistant_stream(input_data: AssistantRequest):
             except Exception as exc:
                 logger.warning("LLM stream unavailable: %s", exc)
         if not response_text:
-            response_text = (f"AIRA readout: {input_data.message.strip().capitalize()} — congestion is "
-                             f"{metrics()['congestion_index']}% across the twin. Stage a green wave through HITEC City "
-                             "and monitor the Airport Corridor. Confidence 86%.")
+            response_text = (f"AIRA [{domain.upper()}] readout: '{input_data.message.strip().capitalize()}' — "
+                             f"current KPIs: {ctx_metrics}. Confidence 82%.")
             yield response_text
         await persist_message(input_data.message, response_text)
     return StreamingResponse(generator(), media_type="text/plain",
@@ -745,7 +755,8 @@ async def _twin_broadcast(kind: str, data: Any):
     await broadcast(kind, data)
 
 
-app.include_router(build_twins_router(lambda: state["domain_store"], broadcaster=_twin_broadcast, auditor=_twin_audit))
+app.include_router(build_twins_router(lambda: state["domain_store"], broadcaster=_twin_broadcast,
+                                       auditor=_twin_audit, user_dep=_current_user_dep))
 
 
 # ============================================================

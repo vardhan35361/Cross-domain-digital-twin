@@ -1,127 +1,154 @@
 import { NavLink } from "react-router-dom";
 import {
-  Activity, AirVent, AlertTriangle, Ambulance, Archive, BarChart3, BedDouble, Building2, Camera, Cog, Cpu, Crown, Database,
-  Droplets, Factory, Fingerprint, FlaskConical, Fuel, Gauge, HeartPulse, Hospital, KeyRound, Layers3, LayoutDashboard, LineChart, Lock, Map, Microscope,
+  Activity, AirVent, AlertTriangle, Ambulance, Archive, BarChart3, BedDouble, Building2, Camera, Car, Cog, Cpu, Crown, Database,
+  Droplets, Factory, Fingerprint, FlaskConical, Fuel, Gauge, HeartPulse, Home, Hospital, KeyRound, Layers3, LayoutDashboard, LineChart, Lock, Map, Microscope,
   Pill, Plane, Radio, Rewind, Route, Settings2, ShieldAlert, ShieldCheck, Siren, Signal, Sparkles, Stethoscope, Sun, Timer,
-  TowerControl, Truck, UsersRound, Waves, Wind, Wrench, Zap,
+  TowerControl, Truck, UsersRound, Waves, Wind, Wrench, Zap, Cog as SettingsIcon,
 } from "lucide-react";
 import { useAuth } from "../state/AuthContext";
 import { useDomains } from "../state/DomainContext";
 
-const TRAFFIC_NAV = [
-  { to: "/domains", icon: Layers3, label: "Digital twins", key: "domains", perm: "overview" },
-  { to: "/", icon: TowerControl, label: "City overview", key: "overview", perm: "overview" },
-  { to: "/twin", icon: Map, label: "3D digital twin", key: "twin", perm: "twin" },
-  { to: "/analytics", icon: BarChart3, label: "Traffic analytics", key: "analytics", perm: "analytics" },
-  { to: "/predictive", icon: Sparkles, label: "Predictive AI", key: "predictive", perm: "predictive" },
-  { to: "/signals", icon: Signal, label: "Signal control", key: "signals", perm: "signals" },
-  { to: "/incidents", icon: ShieldAlert, label: "Incidents", key: "incidents", perm: "incidents", badge: 3 },
-  { to: "/emergency", icon: Route, label: "Emergency ops", key: "emergency", perm: "emergency" },
-  { to: "/convoy", icon: Crown, label: "VIP convoy", key: "convoy", perm: "convoy" },
-  { to: "/drones", icon: Plane, label: "Drone surveillance", key: "drones", perm: "drones" },
-  { to: "/cctv", icon: Camera, label: "CCTV network", key: "cctv", perm: "cctv" },
-  { to: "/replay", icon: Rewind, label: "Replay & timeline", key: "replay", perm: "replay" },
-  { to: "/live", icon: Activity, label: "Live data", key: "live", perm: "live" },
+// Platform-level menu shown on / (no domain selected)
+const PLATFORM_NAV = [
+  { to: "/", icon: Home, label: "Platform home", key: "platform-home", perm: "overview" },
+  { to: "/traffic", icon: Car, label: "Traffic domain", key: "d-traffic", perm: "overview" },
+  { to: "/hospital", icon: Hospital, label: "Hospital domain", key: "d-hospital", perm: "overview" },
+  { to: "/building", icon: Building2, label: "Building domain", key: "d-building", perm: "overview" },
+  { to: "/industrial", icon: Factory, label: "Industrial domain", key: "d-industrial", perm: "overview" },
+  { to: "/energy", icon: Zap, label: "Energy domain", key: "d-energy", perm: "overview" },
+  { to: "/water", icon: Droplets, label: "Water domain", key: "d-water", perm: "overview" },
   { to: "/data-sources", icon: Database, label: "Data sources", key: "data-sources", perm: "overview" },
   { to: "/system", icon: Cpu, label: "System monitor", key: "system", perm: "*" },
   { to: "/users", icon: UsersRound, label: "User admin", key: "users", perm: "*" },
   { to: "/audit", icon: Fingerprint, label: "Audit logs", key: "audit", perm: "audit" },
-  { to: "/settings", icon: Cog, label: "Settings", key: "settings", perm: "*" },
+  { to: "/settings", icon: SettingsIcon, label: "Platform settings", key: "settings", perm: "*" },
+];
+
+const TRAFFIC_NAV = [
+  { to: "/", icon: Home, label: "Digital twins", key: "back-platform", perm: "overview" },
+  { to: "/traffic", icon: TowerControl, label: "Traffic overview", key: "t-overview", perm: "traffic" },
+  { to: "/traffic/twin", icon: Map, label: "3D digital twin", key: "t-twin", perm: "twin" },
+  { to: "/traffic/analytics", icon: BarChart3, label: "Traffic analytics", key: "t-analytics", perm: "analytics" },
+  { to: "/traffic/predictive", icon: Sparkles, label: "Predictive AI", key: "t-predictive", perm: "predictive" },
+  { to: "/traffic/signals", icon: Signal, label: "Signal control", key: "t-signals", perm: "signals" },
+  { to: "/traffic/incidents", icon: ShieldAlert, label: "Incidents", key: "t-incidents", perm: "incidents", badge: 3 },
+  { to: "/traffic/emergency", icon: Route, label: "Emergency ops", key: "t-emergency", perm: "emergency" },
+  { to: "/traffic/convoy", icon: Crown, label: "VIP convoy", key: "t-convoy", perm: "convoy" },
+  { to: "/traffic/drones", icon: Plane, label: "Drone surveillance", key: "t-drones", perm: "drones" },
+  { to: "/traffic/cctv", icon: Camera, label: "CCTV network", key: "t-cctv", perm: "cctv" },
+  { to: "/traffic/replay", icon: Rewind, label: "Replay & timeline", key: "t-replay", perm: "replay" },
+  { to: "/traffic/live", icon: Activity, label: "Live data", key: "t-live", perm: "live" },
 ];
 
 const DOMAIN_LABELS = {
-  hospital: "Hospital command", building: "Facility ops", industrial: "Industrial ops",
-  energy: "Grid ops", water: "Water ops",
+  hospital: { title: "Hospital Digital Twin", subtitle: "REAL-TIME HEALTHCARE OPERATIONS", accent: "blue" },
+  building: { title: "Smart Building Digital Twin", subtitle: "REAL-TIME FACILITY OPERATIONS", accent: "amber" },
+  industrial: { title: "Industrial Digital Twin", subtitle: "REAL-TIME PLANT OPERATIONS", accent: "steel" },
+  energy: { title: "Energy Infrastructure Digital Twin", subtitle: "REAL-TIME GRID OPERATIONS", accent: "green" },
+  water: { title: "Water Infrastructure Digital Twin", subtitle: "REAL-TIME WATER NETWORK OPERATIONS", accent: "aqua" },
+  traffic: { title: "Traffic Digital Twin", subtitle: "REAL-TIME TRANSPORTATION OPERATIONS", accent: "cyan" },
 };
 
 const DOMAIN_NAVS = {
   hospital: [
-    { to: "/domains/hospital", icon: LayoutDashboard, label: "Command overview", key: "h-overview" },
-    { to: "/domains/hospital/twin", icon: Map, label: "3D hospital twin", key: "h-twin" },
-    { to: "/domains/hospital/icu", icon: HeartPulse, label: "ICU operations", key: "h-icu" },
-    { to: "/domains/hospital/er", icon: Siren, label: "Emergency dept", key: "h-er" },
-    { to: "/domains/hospital/wards", icon: BedDouble, label: "Wards & beds", key: "h-wards" },
-    { to: "/domains/hospital/equipment", icon: Stethoscope, label: "Equipment health", key: "h-equip" },
-    { to: "/domains/hospital/ambulances", icon: Ambulance, label: "Ambulance fleet", key: "h-amb" },
-    { to: "/domains/hospital/pharmacy", icon: Pill, label: "Pharmacy & supply", key: "h-pharm" },
-    { to: "/domains/hospital/alerts", icon: AlertTriangle, label: "Alerts & events", key: "h-alerts" },
-    { to: "/domains/hospital/replay", icon: Rewind, label: "60-min replay", key: "h-replay" },
+    { to: "/hospital", icon: LayoutDashboard, label: "Hospital overview", key: "h-overview" },
+    { to: "/hospital/twin", icon: Map, label: "3D hospital twin", key: "h-twin" },
+    { to: "/hospital/icu", icon: HeartPulse, label: "ICU operations", key: "h-icu" },
+    { to: "/hospital/er", icon: Siren, label: "Emergency dept", key: "h-er" },
+    { to: "/hospital/wards", icon: BedDouble, label: "Wards & beds", key: "h-wards" },
+    { to: "/hospital/equipment", icon: Stethoscope, label: "Medical equipment", key: "h-equip" },
+    { to: "/hospital/ambulances", icon: Ambulance, label: "Ambulance fleet", key: "h-amb" },
+    { to: "/hospital/pharmacy", icon: Pill, label: "Pharmacy & supply", key: "h-pharm" },
+    { to: "/hospital/alerts", icon: AlertTriangle, label: "Alerts & events", key: "h-alerts" },
+    { to: "/hospital/replay", icon: Rewind, label: "60-min replay", key: "h-replay" },
   ],
   building: [
-    { to: "/domains/building", icon: LayoutDashboard, label: "Facility overview", key: "b-overview" },
-    { to: "/domains/building/twin", icon: Map, label: "3D building twin", key: "b-twin" },
-    { to: "/domains/building/floors", icon: Building2, label: "Floors & occupancy", key: "b-floors" },
-    { to: "/domains/building/hvac", icon: AirVent, label: "HVAC control", key: "b-hvac" },
-    { to: "/domains/building/elevators", icon: Archive, label: "Elevators", key: "b-lifts" },
-    { to: "/domains/building/access", icon: KeyRound, label: "Access control", key: "b-access" },
-    { to: "/domains/building/energy", icon: Zap, label: "Energy & solar", key: "b-energy" },
-    { to: "/domains/building/safety", icon: ShieldCheck, label: "Fire & safety", key: "b-safety" },
-    { to: "/domains/building/alerts", icon: AlertTriangle, label: "Alerts & events", key: "b-alerts" },
-    { to: "/domains/building/replay", icon: Rewind, label: "60-min replay", key: "b-replay" },
+    { to: "/building", icon: LayoutDashboard, label: "Building overview", key: "b-overview" },
+    { to: "/building/twin", icon: Map, label: "3D building twin", key: "b-twin" },
+    { to: "/building/floors", icon: Building2, label: "Floors & occupancy", key: "b-floors" },
+    { to: "/building/hvac", icon: AirVent, label: "HVAC control", key: "b-hvac" },
+    { to: "/building/elevators", icon: Archive, label: "Elevators", key: "b-lifts" },
+    { to: "/building/access", icon: KeyRound, label: "Access control", key: "b-access" },
+    { to: "/building/energy", icon: Zap, label: "Energy & solar", key: "b-energy" },
+    { to: "/building/safety", icon: ShieldCheck, label: "Fire & safety", key: "b-safety" },
+    { to: "/building/alerts", icon: AlertTriangle, label: "Alerts & events", key: "b-alerts" },
+    { to: "/building/replay", icon: Rewind, label: "60-min replay", key: "b-replay" },
   ],
   industrial: [
-    { to: "/domains/industrial", icon: LayoutDashboard, label: "Plant overview", key: "i-overview" },
-    { to: "/domains/industrial/twin", icon: Map, label: "3D plant twin", key: "i-twin" },
-    { to: "/domains/industrial/lines", icon: Factory, label: "Production lines", key: "i-lines" },
-    { to: "/domains/industrial/machines", icon: Cog, label: "Machines", key: "i-mach" },
-    { to: "/domains/industrial/sensors", icon: Gauge, label: "Sensors telemetry", key: "i-sensors" },
-    { to: "/domains/industrial/quality", icon: FlaskConical, label: "Quality control", key: "i-qual" },
-    { to: "/domains/industrial/safety", icon: ShieldCheck, label: "Safety & OSHA", key: "i-safety" },
-    { to: "/domains/industrial/alerts", icon: AlertTriangle, label: "Alerts & events", key: "i-alerts" },
-    { to: "/domains/industrial/replay", icon: Rewind, label: "60-min replay", key: "i-replay" },
+    { to: "/industrial", icon: LayoutDashboard, label: "Plant overview", key: "i-overview" },
+    { to: "/industrial/twin", icon: Map, label: "3D plant twin", key: "i-twin" },
+    { to: "/industrial/lines", icon: Factory, label: "Production lines", key: "i-lines" },
+    { to: "/industrial/machines", icon: Cog, label: "Machines", key: "i-mach" },
+    { to: "/industrial/sensors", icon: Gauge, label: "Sensors telemetry", key: "i-sensors" },
+    { to: "/industrial/quality", icon: FlaskConical, label: "Quality control", key: "i-qual" },
+    { to: "/industrial/safety", icon: ShieldCheck, label: "Safety & OSHA", key: "i-safety" },
+    { to: "/industrial/alerts", icon: AlertTriangle, label: "Alerts & events", key: "i-alerts" },
+    { to: "/industrial/replay", icon: Rewind, label: "60-min replay", key: "i-replay" },
   ],
   energy: [
-    { to: "/domains/energy", icon: LayoutDashboard, label: "Grid overview", key: "e-overview" },
-    { to: "/domains/energy/twin", icon: Map, label: "3D grid twin", key: "e-twin" },
-    { to: "/domains/energy/substations", icon: TowerControl, label: "Substations", key: "e-subs" },
-    { to: "/domains/energy/transformers", icon: Wrench, label: "Transformers", key: "e-trf" },
-    { to: "/domains/energy/feeders", icon: LineChart, label: "Feeders & load", key: "e-feed" },
-    { to: "/domains/energy/renewables", icon: Sun, label: "Solar & wind", key: "e-ren" },
-    { to: "/domains/energy/battery", icon: Fuel, label: "Battery reserves", key: "e-batt" },
-    { to: "/domains/energy/alerts", icon: AlertTriangle, label: "Alerts & events", key: "e-alerts" },
-    { to: "/domains/energy/replay", icon: Rewind, label: "60-min replay", key: "e-replay" },
+    { to: "/energy", icon: LayoutDashboard, label: "Grid overview", key: "e-overview" },
+    { to: "/energy/twin", icon: Map, label: "3D grid twin", key: "e-twin" },
+    { to: "/energy/substations", icon: TowerControl, label: "Substations", key: "e-subs" },
+    { to: "/energy/transformers", icon: Wrench, label: "Transformers", key: "e-trf" },
+    { to: "/energy/feeders", icon: LineChart, label: "Feeders & load", key: "e-feed" },
+    { to: "/energy/renewables", icon: Sun, label: "Solar & wind", key: "e-ren" },
+    { to: "/energy/battery", icon: Fuel, label: "Battery reserves", key: "e-batt" },
+    { to: "/energy/alerts", icon: AlertTriangle, label: "Alerts & events", key: "e-alerts" },
+    { to: "/energy/replay", icon: Rewind, label: "60-min replay", key: "e-replay" },
   ],
   water: [
-    { to: "/domains/water", icon: LayoutDashboard, label: "Network overview", key: "w-overview" },
-    { to: "/domains/water/twin", icon: Map, label: "3D network twin", key: "w-twin" },
-    { to: "/domains/water/reservoirs", icon: Droplets, label: "Reservoirs", key: "w-res" },
-    { to: "/domains/water/pumps", icon: Waves, label: "Pumps", key: "w-pumps" },
-    { to: "/domains/water/valves", icon: Lock, label: "Valves & pipelines", key: "w-valves" },
-    { to: "/domains/water/quality", icon: Microscope, label: "Water quality", key: "w-qual" },
-    { to: "/domains/water/leaks", icon: AlertTriangle, label: "Leak detection", key: "w-leaks" },
-    { to: "/domains/water/alerts", icon: AlertTriangle, label: "Alerts & events", key: "w-alerts" },
-    { to: "/domains/water/replay", icon: Rewind, label: "60-min replay", key: "w-replay" },
+    { to: "/water", icon: LayoutDashboard, label: "Network overview", key: "w-overview" },
+    { to: "/water/twin", icon: Map, label: "3D network twin", key: "w-twin" },
+    { to: "/water/reservoirs", icon: Droplets, label: "Reservoirs", key: "w-res" },
+    { to: "/water/pumps", icon: Waves, label: "Pumps", key: "w-pumps" },
+    { to: "/water/valves", icon: Lock, label: "Valves & pipelines", key: "w-valves" },
+    { to: "/water/quality", icon: Microscope, label: "Water quality", key: "w-qual" },
+    { to: "/water/leaks", icon: AlertTriangle, label: "Leak detection", key: "w-leaks" },
+    { to: "/water/alerts", icon: AlertTriangle, label: "Alerts & events", key: "w-alerts" },
+    { to: "/water/replay", icon: Rewind, label: "60-min replay", key: "w-replay" },
   ],
 };
 
 function domainNav(domainId) {
   const base = DOMAIN_NAVS[domainId] || [];
   return [
-    { to: "/domains", icon: Layers3, label: "Digital twins", key: "domains", perm: "overview" },
+    { to: "/", icon: Home, label: "Digital twins", key: "back-platform", perm: "overview" },
     ...base.map(n => ({ ...n, perm: "overview" })),
     { to: "/data-sources", icon: Database, label: "Data sources", key: "d-data", perm: "overview" },
     { to: "/audit", icon: Fingerprint, label: "Audit log", key: "d-audit", perm: "audit" },
   ];
 }
 
+const BRANDS = {
+  platform: { glyph: "TWIN", strong: "DIGITAL TWIN OS", small: "MULTI-DOMAIN PLATFORM", mode: "PLATFORM" },
+  traffic:  { glyph: "TRA", strong: "TRAFFIC TWIN", small: "TRANSPORTATION OPS", mode: "TRAFFIC CORE" },
+  hospital: { glyph: "HOS", strong: "HOSPITAL TWIN", small: "HEALTHCARE OPS", mode: "HOSPITAL CORE" },
+  building: { glyph: "BLD", strong: "BUILDING TWIN", small: "FACILITY OPS", mode: "BUILDING CORE" },
+  industrial: { glyph: "IND", strong: "INDUSTRIAL TWIN", small: "PLANT OPS", mode: "INDUSTRIAL CORE" },
+  energy:   { glyph: "ENR", strong: "ENERGY TWIN", small: "GRID OPS", mode: "ENERGY CORE" },
+  water:    { glyph: "WTR", strong: "WATER TWIN", small: "NETWORK OPS", mode: "WATER CORE" },
+};
+
 export default function Sidebar() {
   const { user, has } = useAuth();
   const { activeDomain } = useDomains();
-  const rawNav = activeDomain && activeDomain !== "traffic" ? domainNav(activeDomain) : TRAFFIC_NAV;
+  const key = activeDomain || "platform";
+  const brand = BRANDS[key];
+  const rawNav = key === "platform" ? PLATFORM_NAV : (key === "traffic" ? TRAFFIC_NAV : domainNav(key));
   const items = rawNav.filter(n => has(n.perm) || n.perm === "overview");
   return (
-    <aside className="side-rail" data-testid="sidebar-nav">
+    <aside className={`side-rail side-rail-${key}`} data-testid="sidebar-nav" data-domain={key}>
       <div className="brand-mark" data-testid="brand-mark">
-        <div className="brand-glyph">{activeDomain === "traffic" ? "HYD" : (activeDomain?.slice(0,3).toUpperCase() || "TWIN")}</div>
-        <div><strong>{activeDomain === "traffic" ? "ITMS" : (DOMAIN_LABELS[activeDomain] || "TWIN OS").toUpperCase()}</strong>
-          <span>{activeDomain === "traffic" ? "HYDERABAD · TELANGANA" : "DIGITAL TWIN OS"}</span></div>
+        <div className="brand-glyph">{brand.glyph}</div>
+        <div><strong>{brand.strong}</strong><span>{brand.small}</span></div>
       </div>
-      <div className="rail-status" data-testid={`sidebar-mode-${activeDomain || "traffic"}`}><span className="pulse-dot" /> {activeDomain === "traffic" ? "LIVE CORE" : `${activeDomain?.toUpperCase()} CORE`}</div>
+      <div className="rail-status" data-testid={`sidebar-mode-${key}`}><span className="pulse-dot" /> {brand.mode}</div>
       <nav className="rail-nav">
-        {items.map(({to, icon:Icon, label, key, badge}) => (
-          <NavLink key={key} to={to} end={to === "/" || to === `/domains/${activeDomain}`}
+        {items.map(({to, icon:Icon, label, key: itemKey, badge}) => (
+          <NavLink key={itemKey} to={to}
+            end={to === "/" || to === "/traffic" || to === `/${activeDomain}`}
             className={({isActive}) => isActive ? "rail-item active" : "rail-item"}
-            data-testid={`nav-${key}`}>
+            data-testid={`nav-${itemKey}`}>
             <Icon size={15} />
             <span>{label}</span>
             {badge && <b>{String(badge).padStart(2,"0")}</b>}
@@ -139,3 +166,5 @@ export default function Sidebar() {
     </aside>
   );
 }
+
+export { DOMAIN_LABELS };

@@ -1,41 +1,40 @@
-# Multi-Domain Digital Twin OS — PRD
+# Multi-Domain Digital Twin Platform — PRD
 
 ## Vision
 A cinematic multi-domain digital-twin operating system for city-scale operations. Six independent
-physical domains — **Traffic (ITMS Hyderabad), Hospital, Building, Industrial, Energy, Water** —
-each with real state, entities, KPIs, operator actions, 60-min replay, 3D visualisation, alerts,
-and JWT role-based access.
+physical domains — **Traffic (Hyderabad ITMS), Hospital, Building, Industrial, Energy, Water** — each
+with real state, entities, KPIs, operator actions, 60-min replay, 3D visualisation, alerts, and
+JWT domain-scoped RBAC. The application identity is the **Multi-Domain Digital Twin Platform**;
+Traffic is the flagship domain, not the app.
 
 ## Architecture
 - **Backend**: FastAPI + MongoDB, one multiplexed WS `/api/ws/twins`, per-domain rolling
   1800-frame history buffer, domain-agnostic operator-action engine with cascading state
-  mutations, Prometheus metrics endpoint `/api/metrics`.
-- **Frontend**: React 19, Three.js/R3F, per-domain sidebar with real sub-routes (~30 pages),
-  data-driven Workspace shell, ReplayTimeline scrubber, OperatorAction UI.
+  mutations, Prometheus metrics endpoint `/api/metrics`, per-domain audit log.
+- **Frontend**: React 19, Three.js/R3F, Platform Home at `/`, root-level domain routes
+  `/traffic/*`, `/hospital/*`, `/building/*`, `/industrial/*`, `/energy/*`, `/water/*` with
+  ~40 workspace pages. Domain-aware Sidebar, TopBar, breadcrumbs, notifications, AIRA.
 - **Observability**: docker-compose bundles Prometheus + Grafana with 7 auto-provisioned
   dashboards (traffic, hospital, building, industrial, energy, water, system).
 - **CI/CD**: Expanded Jenkins pipeline with per-domain smoke + operator + replay stages.
 
-## Completed (this fork)
-- Enriched every non-traffic domain with real sub-entities (ICU beds, ER queue with triage,
-  individual HVAC zones, HVAC + elevator + access doors, ~12 individual machines with
-  temperature/vibration, transformers + feeders per substation, valves + pipeline segments).
-- Operator Action Engine with 25+ mutations across all five non-traffic domains
-  + traffic road close. Substation isolate cascades to transformers + feeders.
-- 60-minute rolling history per domain — 1800 frames @ 2s tick, replayed via UI.
-- Single multiplexed WebSocket `/api/ws/twins` with domain envelopes, heartbeats, resync.
-- ~30 dedicated frontend workspace pages (Hospital ICU/ER/Wards/Equipment/Ambulances/
-  Pharmacy/Alerts/Replay/Twin + equivalents for Building/Industrial/Energy/Water).
-- Grafana provisioning (Prometheus datasource + 7 dashboards).
-- Backend self-tests (`domain_simulation_test`, `operator_action_test`,
-  `websocket_replay_test`) all green.
+## Iter-10 Rebrand — Completed
+- Removed Hyderabad-ITMS-only identity from global surfaces (login, platform home, top bar).
+- New brand: **Multi-Domain Digital Twin Platform** with 6 domain pills.
+- 9 seeded RBAC accounts (super/platform/traffic/hospital/building/industrial/energy/water/viewer)
+  all using `@twin.platform` emails and password `Twin@2026`.
+- Route restructure: `/` = Platform Home; `/{domain}/*` for every domain. Legacy `/domains/*`
+  redirects to `/`. All module tiles updated.
+- Server-side RBAC on `POST /api/twins/{domain}/action` — enforces domain scope + blocks Viewer.
+- Cross-domain notification aggregator in TopBar with `[DOMAIN]` prefixed alerts.
+- Domain-aware AIRA — `/api/assistant/stream` receives `{domain}` and uses matching KPI context.
+- Legacy Hyderabad emails auto-purged on startup by `seed_users()`.
 
 ## Test credentials
-See `/app/memory/test_credentials.md` — Super Admin: `super@hyderabad.gov.in / Hyderabad@2026`.
+See `/app/memory/test_credentials.md`. All 9 accounts share password `Twin@2026`.
 
 ## Backlog / Future
-- P2: 3D scene focus targeting per module (currently uses shared DomainScene without
-  camera focus animation)
-- P2: Grafana annotation from operator-action audit stream
-- P2: Alert deduplication policies (currently basic dedup on dedup_key)
+- P1: Grafana annotations from operator-action audit stream
+- P2: 3D camera focus targeting per module
+- P2: Soft-deactivate legacy accounts instead of hard delete (preserve audit-log identity)
 - P3: Full E2E in Jenkins via headless Playwright container

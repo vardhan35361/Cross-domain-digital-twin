@@ -17,12 +17,12 @@ export function BuildingOverview() {
   if (!snap.ready) return <Loader/>;
   const { kpis } = snap;
   const tiles = [
-    { to: "/domains/building/floors", label: "Floors & occupancy", icon: Building2, stat: `${kpis.average_occupancy}% avg` },
-    { to: "/domains/building/hvac", label: "HVAC control", icon: AirVent, stat: `${kpis.hvac_zones_active} zones active` },
-    { to: "/domains/building/elevators", label: "Elevators", icon: Archive, stat: `${kpis.elevators_active} moving` },
-    { to: "/domains/building/access", label: "Access control", icon: KeyRound, stat: `${kpis.doors_locked} doors locked` },
-    { to: "/domains/building/energy", label: "Energy & solar", icon: Zap, stat: `${kpis.energy_kwh} kWh` },
-    { to: "/domains/building/safety", label: "Fire & safety", icon: ShieldCheck, stat: kpis.fire_alarm },
+    { to: "/building/floors", label: "Floors & occupancy", icon: Building2, stat: `${kpis.average_occupancy}% avg` },
+    { to: "/building/hvac", label: "HVAC control", icon: AirVent, stat: `${kpis.hvac_zones_active} zones active` },
+    { to: "/building/elevators", label: "Elevators", icon: Archive, stat: `${kpis.elevators_active} moving` },
+    { to: "/building/access", label: "Access control", icon: KeyRound, stat: `${kpis.doors_locked} doors locked` },
+    { to: "/building/energy", label: "Energy & solar", icon: Zap, stat: `${kpis.energy_kwh} kWh` },
+    { to: "/building/safety", label: "Fire & safety", icon: ShieldCheck, stat: kpis.fire_alarm },
   ];
   return (
     <div className="page domain-workspace" data-testid="workspace-building-overview">

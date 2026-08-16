@@ -17,11 +17,11 @@ export function IndustrialOverview() {
   if (!snap.ready) return <Loader/>;
   const { kpis } = snap;
   const tiles = [
-    { to: "/domains/industrial/lines", label: "Production lines", icon: Factory, stat: `${kpis.active_lines} active` },
-    { to: "/domains/industrial/machines", label: "Machines", icon: Cog, stat: `${kpis.machines_running}/${kpis.machines_total} running` },
-    { to: "/domains/industrial/sensors", label: "Sensors", icon: Gauge, stat: `${kpis.sensor_warnings} warnings` },
-    { to: "/domains/industrial/quality", label: "Quality", icon: FlaskConical, stat: `${kpis.yield_percent}% yield` },
-    { to: "/domains/industrial/safety", label: "Safety", icon: ShieldCheck, stat: `${snap.state.safety?.ppe_compliance}% PPE` },
+    { to: "/industrial/lines", label: "Production lines", icon: Factory, stat: `${kpis.active_lines} active` },
+    { to: "/industrial/machines", label: "Machines", icon: Cog, stat: `${kpis.machines_running}/${kpis.machines_total} running` },
+    { to: "/industrial/sensors", label: "Sensors", icon: Gauge, stat: `${kpis.sensor_warnings} warnings` },
+    { to: "/industrial/quality", label: "Quality", icon: FlaskConical, stat: `${kpis.yield_percent}% yield` },
+    { to: "/industrial/safety", label: "Safety", icon: ShieldCheck, stat: `${snap.state.safety?.ppe_compliance}% PPE` },
   ];
   return (
     <div className="page domain-workspace" data-testid="workspace-industrial-overview">

@@ -3,14 +3,17 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Activity, Mic, Send, Sparkles, Volume2, X } from "lucide-react";
 import { API } from "../services/api";
 import { useTwin } from "../state/TwinContext";
+import { useDomains } from "../state/DomainContext";
 
 export default function AssistantDrawer({ open, onClose }) {
   const { overview } = useTwin();
+  const { activeDomain } = useDomains();
+  const domain = activeDomain || "traffic";
   const [query, setQuery] = useState("");
   const [sending, setSending] = useState(false);
   const [listening, setListening] = useState(false);
   const [messages, setMessages] = useState([{ role: "ai",
-    text: "Good evening, Commander. I'm monitoring 24 zones and 240 active vehicles. What would you like to inspect?" }]);
+    text: `Good evening, Operator. I'm AIRA — currently focused on the ${domain.toUpperCase()} domain. What would you like to inspect?` }]);
 
   const ask = async (question, speak = false) => {
     if (!question || sending) return;
@@ -18,7 +21,7 @@ export default function AssistantDrawer({ open, onClose }) {
     let answer = "";
     try {
       const response = await fetch(`${API}/assistant/stream`, {method:"POST",
-        headers:{"Content-Type":"application/json"}, body:JSON.stringify({message:question})});
+        headers:{"Content-Type":"application/json"}, body:JSON.stringify({message:question, domain})});
       if (!response.ok) throw new Error("assistant unavailable");
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -30,7 +33,7 @@ export default function AssistantDrawer({ open, onClose }) {
         setMessages(prev => [...prev.slice(0,-1), {role:"ai", text:answer}]);
       }
     } catch (_) {
-      answer = "AIRA is in local fallback mode. Current congestion is stable; stage a green wave through HITEC City.";
+      answer = `AIRA [${domain.toUpperCase()}] is in local fallback mode. Domain KPIs stable.`;
       setMessages(prev => [...prev, {role:"ai", text:answer}]);
     } finally {
       setSending(false);

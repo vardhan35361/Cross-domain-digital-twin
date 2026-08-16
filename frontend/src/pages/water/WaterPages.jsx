@@ -17,11 +17,11 @@ export function WaterOverview() {
   if (!snap.ready) return <Loader/>;
   const { kpis } = snap;
   const tiles = [
-    { to: "/domains/water/reservoirs", label: "Reservoirs", icon: Droplets, stat: `${kpis.avg_reservoir_percent}% avg` },
-    { to: "/domains/water/pumps", label: "Pumps", icon: Waves, stat: `${kpis.pumps_running} running` },
-    { to: "/domains/water/valves", label: "Valves & pipelines", icon: Lock, stat: `${kpis.valves_open} open` },
-    { to: "/domains/water/quality", label: "Water quality", icon: Microscope, stat: `pH ${kpis.quality_ph}` },
-    { to: "/domains/water/leaks", label: "Leak detection", icon: AlertTriangle, stat: `${kpis.leaks_detected} leaks` },
+    { to: "/water/reservoirs", label: "Reservoirs", icon: Droplets, stat: `${kpis.avg_reservoir_percent}% avg` },
+    { to: "/water/pumps", label: "Pumps", icon: Waves, stat: `${kpis.pumps_running} running` },
+    { to: "/water/valves", label: "Valves & pipelines", icon: Lock, stat: `${kpis.valves_open} open` },
+    { to: "/water/quality", label: "Water quality", icon: Microscope, stat: `pH ${kpis.quality_ph}` },
+    { to: "/water/leaks", label: "Leak detection", icon: AlertTriangle, stat: `${kpis.leaks_detected} leaks` },
   ];
   return (
     <div className="page domain-workspace" data-testid="workspace-water-overview">

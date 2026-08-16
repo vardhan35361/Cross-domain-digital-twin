@@ -19,12 +19,12 @@ export function HospitalOverview() {
   if (!snap.ready) return <Loader/>;
   const { state, kpis } = snap;
   const modules = [
-    { to: "/domains/hospital/icu", label: "ICU Operations", icon: HeartPulse, tone: "red", stat: `${kpis.icu_beds_occupied}/${kpis.icu_beds_total} beds` },
-    { to: "/domains/hospital/er", label: "Emergency Dept", icon: Siren, tone: "amber", stat: `${kpis.er_waiting} waiting · ${kpis.er_critical} red` },
-    { to: "/domains/hospital/wards", label: "Wards & Beds", icon: BedDouble, tone: "cyan", stat: `${kpis.occupancy_percent}% occupancy` },
-    { to: "/domains/hospital/equipment", label: "Equipment Health", icon: Stethoscope, tone: "cyan", stat: `${kpis.operational_equipment}/${kpis.total_equipment} online` },
-    { to: "/domains/hospital/ambulances", label: "Ambulance Fleet", icon: Ambulance, tone: "cyan", stat: `${kpis.available_ambulances} available` },
-    { to: "/domains/hospital/pharmacy", label: "Pharmacy & Supply", icon: Pill, tone: "cyan", stat: `${state.pharmacy?.stock_percent || 0}% stock` },
+    { to: "/hospital/icu", label: "ICU Operations", icon: HeartPulse, tone: "red", stat: `${kpis.icu_beds_occupied}/${kpis.icu_beds_total} beds` },
+    { to: "/hospital/er", label: "Emergency Dept", icon: Siren, tone: "amber", stat: `${kpis.er_waiting} waiting · ${kpis.er_critical} red` },
+    { to: "/hospital/wards", label: "Wards & Beds", icon: BedDouble, tone: "cyan", stat: `${kpis.occupancy_percent}% occupancy` },
+    { to: "/hospital/equipment", label: "Equipment Health", icon: Stethoscope, tone: "cyan", stat: `${kpis.operational_equipment}/${kpis.total_equipment} online` },
+    { to: "/hospital/ambulances", label: "Ambulance Fleet", icon: Ambulance, tone: "cyan", stat: `${kpis.available_ambulances} available` },
+    { to: "/hospital/pharmacy", label: "Pharmacy & Supply", icon: Pill, tone: "cyan", stat: `${state.pharmacy?.stock_percent || 0}% stock` },
   ];
   return (
     <div className="page domain-workspace" data-testid="workspace-hospital-overview">

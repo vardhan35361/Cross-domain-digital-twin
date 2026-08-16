@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "../services/api";
+import { useAuth } from "../state/AuthContext";
 import { Panel, Metric, Chip } from "./Panel";
 
 /** Compact state badge used across every workspace. */
@@ -9,10 +10,20 @@ export function StateBadge({ state }) {
   return <Chip tone={map[state] || "slate"}>{state || "—"}</Chip>;
 }
 
-/** Executes an operator action against POST /api/twins/{domain}/action. */
+/** Executes an operator action against POST /api/twins/{domain}/action.
+ *  Automatically disables itself for users whose role.domains list does not include this domain. */
 export function ActionButton({ domain, action, params, label, tone = "cyan", confirm, disabled, testId, onDone, size = "sm" }) {
+  const { user } = useAuth() || {};
+  const userDomains = user?.domains || [];
+  const roleAllowsDomain = userDomains.includes("*") || userDomains.includes(domain);
+  const isViewer = user?.role === "viewer";
+  const rbacBlocked = !roleAllowsDomain || isViewer;
   const [pending, setPending] = useState(false);
   const doAction = async () => {
+    if (rbacBlocked) {
+      toast.error("Access denied", { description: `Your role cannot execute ${domain} actions.` });
+      return;
+    }
     if (confirm && !window.confirm(confirm)) return;
     setPending(true);
     try {
@@ -26,9 +37,10 @@ export function ActionButton({ domain, action, params, label, tone = "cyan", con
     }
   };
   return (
-    <button className={`op-btn op-btn-${tone} op-btn-${size}`} onClick={doAction} disabled={pending || disabled}
+    <button className={`op-btn op-btn-${tone} op-btn-${size}`} onClick={doAction} disabled={pending || disabled || rbacBlocked}
+      title={rbacBlocked ? "Access restricted for your role" : undefined}
       data-testid={testId || `action-${domain}-${action}`}>
-      {pending ? "…" : label}
+      {pending ? "…" : rbacBlocked ? "🔒" : label}
     </button>
   );
 }

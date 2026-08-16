@@ -1,0 +1,45 @@
+{
+  "summary": "Iter-10 rebrand testing. Backend (13 pass, 2 xfail, 1 skip in /app/tests/test_iter10_rebrand.py): all 9 new @twin.platform seed accounts login with Twin@2026 and return the correct role+domains; 6 legacy @hyderabad.gov.in accounts reject with 401; /api/auth/accounts returns 9 accounts + password Twin@2026; /api/auth/roles exposes 9 roles with domain scope; super_admin can execute POST /api/twins/water/action valve.close on vlv-01 which persists (verified via GET /api/twins/water). Frontend Playwright: LoginPage shows [data-testid=platform-title]='Multi-Domain Digital Twin Platform', [data-testid=login-domain-strip] and all 9 account tiles (account-super_admin ... account-viewer) resolve. Super-admin lands on / with [data-testid=page-platform-home] rendering hero 'Multi-Domain Digital Twin Platform', 6 domain tiles (platform-tile-traffic|hospital|building|industrial|energy|water), KPIs '6/6', 'MongoDB ONLINE', 'WebSocket LIVE'. Clicking platform-tile-hospital → /hospital, sidebar switches to [data-domain=hospital] and nav-h-icu is present. TopBar title on /traffic = 'Hyderabad Traffic Digital Twin', sidebar [data-domain=traffic] with nav-t-overview/nav-t-signals. Deep-link /energy/substations mounts workspace-energy-substations with [data-domain=energy] sidebar; /water/valves mounts workspace-water-valves with [data-domain=water]. Breadcrumb on /hospital/icu shows 'Digital twins / Hospital / Icu'. Cross-domain notif-popover contains [HOSPITAL], [ENERGY], [WATER], [BUILDING], [INDUSTRIAL] prefixed alerts. Domain switcher exposes 6 chips as [data-testid=domain-chip-{d}] (NOT domain-switch-{d} as spec worded) — clicking domain-chip-energy navigates to /energy. AIRA drawer POSTs /api/assistant/stream with body {\"message\":\"...\",\"domain\":\"energy\"} on /energy. RBAC: hospital_operator on /energy/substations sees 4/5 isolate buttons disabled with 🔒 icon (5th is already 'Isolated'). Viewer on /hospital/icu has 10/10 discharge buttons disabled with 🔒. Legacy super@hyderabad.gov.in / Hyderabad@2026 login shows 'Invalid credentials' and stays on login. Old routes /domains/hospital and /domains/energy correctly redirect to /.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/twins/{domain}/action", "issue": "Endpoint has NO authentication or RBAC. Any logged-in user (viewer, hospital_operator, etc.) OR unauthenticated caller can invoke energy/water/building/industrial/hospital actions directly. RBAC is enforced only client-side via ActionButton. A viewer with a valid JWT can POST /api/twins/water/action valve.close successfully. This bypasses the promised 'Hospital Operator cannot execute energy/water actions' guarantee.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Domain overview module tiles (Hospital/Energy/Water/Building/Industrial Pages.jsx)", "issue": "Module tiles STILL link to legacy /domains/{domain}/{module} paths (hard-coded in HospitalPages.jsx L22-27, EnergyPages.jsx L20-24, WaterPages.jsx L20-24, BuildingPages.jsx L20-25, IndustrialPages.jsx L20-24). But /domains/* routes now redirect to /, so clicking ANY module tile from a domain overview page (e.g. Hospital > ICU Operations tile) navigates the user to the Platform Home instead of the intended workspace. Fix: rewrite all to='/domains/{d}/{m}' → to='/{d}/{m}'.", "selector": "[data-testid^='module-tile-']", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/tests/test_iter10_rebrand.py",
+    "/app/test_reports/pytest/iter10_rebrand.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Update module tile hrefs in /app/frontend/src/pages/{hospital,energy,water,building,industrial}/*.jsx from '/domains/{d}/{m}' to '/{d}/{m}' so drill-down from domain overview reaches the new workspace routes instead of redirecting to /.",
+    "HIGH: Add server-side auth+RBAC to POST /api/twins/{domain}/action in /app/backend/twins.py L1108 — inject Depends(current_user) and check user['role']==viewer blocks all, and ROLES[user.role]['domains'] contains '*' or the requested domain. Otherwise UI locks are cosmetic and a hostile user can hit the API directly.",
+    "MINOR: TopBar notification popover missing TRAFFIC-prefixed alerts. Depending on WS ticker design, [TRAFFIC] entries may not surface — verify Traffic snapshot events feed into the same aggregator as domain snapshots."
+  ],
+  "critical_code_review_comments": [
+    "twins.py L1108-1140 twin_action endpoint has no Depends(current_user)/require_permission — RBAC is only UI-enforced. Trivially bypassable via curl.",
+    "5 pages/{domain}/*Pages.jsx still emit hrefs '/domains/{d}/{m}' — these must be flipped to '/{d}/{m}' to match the new IA. Because /domains/* now redirects to /, this is currently a hard-broken navigation for every drill-down from a domain overview.",
+    "LoginPage: works. auth.py seed rotation drops the 6 legacy Hyderabad emails on every startup (auth.py L127-132) — good, but the migration is destructive; if anyone re-imports historic audit logs referencing those emails they lose actor identity linkage. Consider soft-deactivate instead.",
+    "Domain switcher testid convention: code uses 'domain-chip-{id}' (DomainSwitcher.jsx L26); review request wording 'domain switcher chips' works, but note the exact testid pattern for future tests.",
+    "AIRA POST /api/assistant/stream confirmed to send {message, domain} — verify backend uses the domain to bias the system prompt (spot-check with domain=energy expected 'ENERGY' greeting)."
+  ],
+  "updated_files": [
+    "/app/tests/test_iter10_rebrand.py (new)"
+  ],
+  "success_rate": {
+    "backend": "86% (13/15 pass, 2 xfailed on missing server-side RBAC — expected failure, tracked as action item)",
+    "frontend": "~90% — rebrand, routes, sidebar-per-URL, breadcrumb, cross-domain notifications, domain-chip switcher, AIRA domain-aware payload, legacy login rejected, RBAC (hospital op vs viewer) all PASS. One HIGH-priority regression: domain overview module tiles still link to legacy /domains/* and thus redirect to /."
+  },
+  "test_credentials": "super@twin.platform / Twin@2026 (also platform, traffic, hospital, building, industrial, energy, water, viewer @twin.platform, all password Twin@2026)",
+  "seed_data_creation": "None. Water valve vlv-01 is toggled closed→open by the end-to-end test.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run backend tests with: python -m pytest /app/tests/test_iter10_rebrand.py -o addopts='' -v (file is OUTSIDE /app/backend so uvicorn --reload does not trigger). Domain switcher testids follow the pattern [data-testid=domain-chip-{d}], NOT domain-switch-{d}. Notifications bell testid is [data-testid=notifications-button] (open) and [data-testid=notif-popover] (dropdown). Module tile links are the highest-impact regression — verify after E1's fix by asserting: on /hospital, first [data-testid^='module-tile-'] href endsWith '/hospital/icu'.",
+  "rca of the issue": "Module tile regression RCA: iter-10 introduced /{domain}/* routes and redirected legacy /domains/* → /, but the 5 domain overview pages hard-code module-tile hrefs to '/domains/{d}/{m}'. Because the RedirectToPlatformHome swallows all /domains/* URLs before RoutePages can render the target module, drill-down from any domain overview lands on the Platform Home. Fix is a single find-replace in HospitalPages/EnergyPages/WaterPages/BuildingPages/IndustrialPages: 'to: \"/domains/' → 'to: \"/'."
+}

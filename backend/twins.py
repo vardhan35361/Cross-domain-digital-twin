@@ -1036,8 +1036,16 @@ class ActionCmd(BaseModel):
 
 def build_twins_router(store_getter: Callable[[], Dict[str, Any]],
                        broadcaster: Optional[Callable[[str, Any], Any]] = None,
-                       auditor: Optional[Callable] = None) -> APIRouter:
+                       auditor: Optional[Callable] = None,
+                       user_dep: Optional[Callable] = None) -> APIRouter:
     router = APIRouter(prefix="/api")
+    from fastapi import Depends
+
+    def _resolve_user_dep():
+        if user_dep is None:
+            async def _no_op(): return None
+            return _no_op
+        return user_dep
 
     @router.get("/domains")
     async def list_domains():
@@ -1106,10 +1114,25 @@ def build_twins_router(store_getter: Callable[[], Dict[str, Any]],
         return {"domain": domain, "actions": sorted(ACTION_HANDLERS.get(domain, {}).keys())}
 
     @router.post("/twins/{domain}/action")
-    async def twin_action(domain: str, cmd: ActionCmd):
+    async def twin_action(domain: str, cmd: ActionCmd, user=Depends(_resolve_user_dep())):
         store = store_getter()
         if domain not in store:
             raise HTTPException(status_code=404, detail="Domain not found")
+        # Server-side RBAC: enforce domain scope + block viewer role
+        if user:
+            role = user.get("role", "viewer")
+            # domains may be missing from raw Mongo doc — fall back to ROLES definition
+            user_domains = user.get("domains")
+            if not user_domains:
+                try:
+                    from auth import ROLES as _ROLES  # lazy import to avoid cycle
+                    user_domains = _ROLES.get(role, {}).get("domains", [])
+                except Exception:
+                    user_domains = []
+            if role == "viewer":
+                raise HTTPException(status_code=403, detail="Viewer role cannot execute operator actions.")
+            if "*" not in user_domains and domain not in user_domains:
+                raise HTTPException(status_code=403, detail=f"Your role does not permit actions on '{domain}' domain.")
         handlers = ACTION_HANDLERS.get(domain, {})
         handler = handlers.get(cmd.action)
         if not handler:

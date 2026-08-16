@@ -9,6 +9,7 @@ import Sidebar from "./layout/Sidebar";
 import TopBar from "./layout/TopBar";
 import AssistantDrawer from "./layout/AssistantDrawer";
 import LoginPage from "./pages/LoginPage";
+import PlatformHome from "./pages/PlatformHome";
 import CityOverview from "./pages/CityOverview";
 import DigitalTwin from "./pages/DigitalTwin";
 import Analytics from "./pages/Analytics";
@@ -25,8 +26,6 @@ import CctvNetwork from "./pages/CctvNetwork";
 import UserAdmin from "./pages/UserAdmin";
 import AuditLogs from "./pages/AuditLogs";
 import Settings from "./pages/Settings";
-import DomainsHome from "./pages/DomainsHome";
-import DomainTwin from "./pages/DomainTwin";
 import DataSources from "./pages/DataSources";
 import {
   HospitalOverview, HospitalICU, HospitalER, HospitalWards, HospitalEquipment,
@@ -50,36 +49,35 @@ import {
 } from "./pages/water/WaterPages";
 import "@/App.css";
 
-const HEADERS = {
-  "/": { title: <>City <em>pulse</em></>, kicker: "COMMAND CENTER / OVERVIEW" },
-  "/twin": { title: <>3D <em>metropolitan twin</em></>, kicker: "SPATIAL MODEL / HYDERABAD" },
-  "/analytics": { title: <>Traffic <em>analytics</em></>, kicker: "ANALYTICS WORKSPACE" },
-  "/predictive": { title: <>Predictive <em>AI</em></>, kicker: "FORECAST CENTER" },
-  "/incidents": { title: <>Incident <em>management</em></>, kicker: "RESPONSE DESK" },
-  "/emergency": { title: <>Emergency <em>operations</em></>, kicker: "GREEN CORRIDOR CONSOLE" },
-  "/convoy": { title: <>VIP <em>convoy</em></>, kicker: "PROTECTED MOVEMENT" },
-  "/signals": { title: <>Signal <em>control</em></>, kicker: "ADAPTIVE SIGNAL CENTER" },
-  "/drones": { title: <>Drone <em>surveillance</em></>, kicker: "AERIAL MONITORING" },
-  "/cctv": { title: <>CCTV <em>network</em></>, kicker: "CAMERA SURVEILLANCE" },
-  "/replay": { title: <>Replay & <em>timeline</em></>, kicker: "OPERATIONAL PLAYBACK" },
-  "/live": { title: <>Live <em>integrations</em></>, kicker: "ADAPTER MATRIX" },
-  "/system": { title: <>System <em>monitoring</em></>, kicker: "DEVOPS DASHBOARD" },
-  "/users": { title: <>User <em>administration</em></>, kicker: "ACCESS CONTROL" },
-  "/audit": { title: <>Audit <em>& security</em></>, kicker: "ACTIVITY LOG" },
-  "/settings": { title: <>Simulation <em>settings</em></>, kicker: "PLATFORM CONFIG" },
-  "/domains": { title: <>Digital twin <em>registry</em></>, kicker: "MULTI-DOMAIN PLATFORM" },
+const DOMAIN_HEADERS = {
+  hospital: { title: <>Hospital <em>Digital Twin</em></>, kicker: "REAL-TIME HEALTHCARE OPERATIONS" },
+  building: { title: <>Smart Building <em>Digital Twin</em></>, kicker: "REAL-TIME FACILITY OPERATIONS" },
+  industrial: { title: <>Industrial <em>Digital Twin</em></>, kicker: "REAL-TIME PLANT OPERATIONS" },
+  energy: { title: <>Energy Infrastructure <em>Digital Twin</em></>, kicker: "REAL-TIME GRID OPERATIONS" },
+  water: { title: <>Water Infrastructure <em>Digital Twin</em></>, kicker: "REAL-TIME WATER NETWORK OPERATIONS" },
+  traffic: { title: <>Hyderabad Traffic <em>Digital Twin</em></>, kicker: "REAL-TIME TRANSPORTATION OPERATIONS" },
+};
+
+const STATIC_HEADERS = {
+  "/": { title: <>Multi-Domain <em>Digital Twin Platform</em></>, kicker: "DIGITAL TWIN OPERATING SYSTEM" },
   "/data-sources": { title: <>Data <em>sources</em></>, kicker: "INGESTION CONTROL" },
+  "/system": { title: <>System <em>monitoring</em></>, kicker: "DEVOPS DASHBOARD" },
+  "/users": { title: <>User <em>administration</em></>, kicker: "PLATFORM ACCESS CONTROL" },
+  "/audit": { title: <>Audit <em>& security</em></>, kicker: "ACTIVITY LOG" },
+  "/settings": { title: <>Platform <em>settings</em></>, kicker: "PLATFORM CONFIG" },
 };
 
 function headerFor(pathname) {
-  if (HEADERS[pathname]) return HEADERS[pathname];
-  if (pathname.startsWith("/domains/")) {
-    const [, , domain, mod] = pathname.split("/");
-    const nice = mod ? mod.replace(/-/g, " ") : "overview";
-    return { title: <>{domain} <em>· {nice}</em></>,
-             kicker: `${domain.toUpperCase()} · ${nice.toUpperCase()}` };
+  if (STATIC_HEADERS[pathname]) return STATIC_HEADERS[pathname];
+  const seg = pathname.split("/").filter(Boolean)[0];
+  if (DOMAIN_HEADERS[seg]) {
+    const base = DOMAIN_HEADERS[seg];
+    const sub = pathname.split("/")[2];
+    if (!sub) return base;
+    const label = sub.replace(/-/g, " ");
+    return { title: base.title, kicker: `${seg.toUpperCase()} · ${label.toUpperCase()}` };
   }
-  return HEADERS["/"];
+  return STATIC_HEADERS["/"];
 }
 
 function AppShell() {
@@ -87,95 +85,101 @@ function AppShell() {
   const location = useLocation();
   const header = headerFor(location.pathname);
   return (
-    <div className="command-shell" data-testid="command-shell">
+    <div className="command-shell" data-testid="command-shell" data-path={location.pathname}>
       <Sidebar />
       <main className="main-stage">
         <TopBar title={header.title} kicker={header.kicker} onOpenAssistant={() => setAssistantOpen(true)} />
         <Routes>
-          <Route path="/" element={<CityOverview />} />
-          <Route path="/twin" element={<DigitalTwin />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/predictive" element={<PredictiveAI />} />
-          <Route path="/incidents" element={<Incidents />} />
-          <Route path="/emergency" element={<Emergency />} />
-          <Route path="/convoy" element={<VipConvoy />} />
-          <Route path="/signals" element={<Signals />} />
-          <Route path="/drones" element={<DroneSurveillance />} />
-          <Route path="/cctv" element={<CctvNetwork />} />
-          <Route path="/replay" element={<Replay />} />
-          <Route path="/live" element={<LiveData />} />
+          {/* Platform home */}
+          <Route path="/" element={<PlatformHome />} />
+
+          {/* Platform-level utilities */}
+          <Route path="/data-sources" element={<DataSources />} />
           <Route path="/system" element={<SystemMonitoring />} />
           <Route path="/users" element={<UserAdmin />} />
           <Route path="/audit" element={<AuditLogs />} />
           <Route path="/settings" element={<Settings />} />
-          <Route path="/domains" element={<DomainsHome />} />
-          <Route path="/data-sources" element={<DataSources />} />
+
+          {/* Traffic domain */}
+          <Route path="/traffic" element={<CityOverview />} />
+          <Route path="/traffic/twin" element={<DigitalTwin />} />
+          <Route path="/traffic/analytics" element={<Analytics />} />
+          <Route path="/traffic/predictive" element={<PredictiveAI />} />
+          <Route path="/traffic/incidents" element={<Incidents />} />
+          <Route path="/traffic/emergency" element={<Emergency />} />
+          <Route path="/traffic/convoy" element={<VipConvoy />} />
+          <Route path="/traffic/signals" element={<Signals />} />
+          <Route path="/traffic/drones" element={<DroneSurveillance />} />
+          <Route path="/traffic/cctv" element={<CctvNetwork />} />
+          <Route path="/traffic/replay" element={<Replay />} />
+          <Route path="/traffic/live" element={<LiveData />} />
 
           {/* Hospital (hero) */}
-          <Route path="/domains/hospital" element={<HospitalOverview />} />
-          <Route path="/domains/hospital/twin" element={<HospitalTwin />} />
-          <Route path="/domains/hospital/icu" element={<HospitalICU />} />
-          <Route path="/domains/hospital/er" element={<HospitalER />} />
-          <Route path="/domains/hospital/wards" element={<HospitalWards />} />
-          <Route path="/domains/hospital/equipment" element={<HospitalEquipment />} />
-          <Route path="/domains/hospital/ambulances" element={<HospitalAmbulances />} />
-          <Route path="/domains/hospital/pharmacy" element={<HospitalPharmacy />} />
-          <Route path="/domains/hospital/alerts" element={<HospitalAlerts />} />
-          <Route path="/domains/hospital/replay" element={<HospitalReplay />} />
+          <Route path="/hospital" element={<HospitalOverview />} />
+          <Route path="/hospital/twin" element={<HospitalTwin />} />
+          <Route path="/hospital/icu" element={<HospitalICU />} />
+          <Route path="/hospital/er" element={<HospitalER />} />
+          <Route path="/hospital/wards" element={<HospitalWards />} />
+          <Route path="/hospital/equipment" element={<HospitalEquipment />} />
+          <Route path="/hospital/ambulances" element={<HospitalAmbulances />} />
+          <Route path="/hospital/pharmacy" element={<HospitalPharmacy />} />
+          <Route path="/hospital/alerts" element={<HospitalAlerts />} />
+          <Route path="/hospital/replay" element={<HospitalReplay />} />
 
           {/* Building */}
-          <Route path="/domains/building" element={<BuildingOverview />} />
-          <Route path="/domains/building/twin" element={<BuildingTwin />} />
-          <Route path="/domains/building/floors" element={<BuildingFloors />} />
-          <Route path="/domains/building/hvac" element={<BuildingHVAC />} />
-          <Route path="/domains/building/elevators" element={<BuildingElevators />} />
-          <Route path="/domains/building/access" element={<BuildingAccess />} />
-          <Route path="/domains/building/energy" element={<BuildingEnergy />} />
-          <Route path="/domains/building/safety" element={<BuildingSafety />} />
-          <Route path="/domains/building/alerts" element={<BuildingAlerts />} />
-          <Route path="/domains/building/replay" element={<BuildingReplay />} />
+          <Route path="/building" element={<BuildingOverview />} />
+          <Route path="/building/twin" element={<BuildingTwin />} />
+          <Route path="/building/floors" element={<BuildingFloors />} />
+          <Route path="/building/hvac" element={<BuildingHVAC />} />
+          <Route path="/building/elevators" element={<BuildingElevators />} />
+          <Route path="/building/access" element={<BuildingAccess />} />
+          <Route path="/building/energy" element={<BuildingEnergy />} />
+          <Route path="/building/safety" element={<BuildingSafety />} />
+          <Route path="/building/alerts" element={<BuildingAlerts />} />
+          <Route path="/building/replay" element={<BuildingReplay />} />
 
           {/* Industrial */}
-          <Route path="/domains/industrial" element={<IndustrialOverview />} />
-          <Route path="/domains/industrial/twin" element={<IndustrialTwin />} />
-          <Route path="/domains/industrial/lines" element={<IndustrialLines />} />
-          <Route path="/domains/industrial/machines" element={<IndustrialMachines />} />
-          <Route path="/domains/industrial/sensors" element={<IndustrialSensors />} />
-          <Route path="/domains/industrial/quality" element={<IndustrialQuality />} />
-          <Route path="/domains/industrial/safety" element={<IndustrialSafety />} />
-          <Route path="/domains/industrial/alerts" element={<IndustrialAlerts />} />
-          <Route path="/domains/industrial/replay" element={<IndustrialReplay />} />
+          <Route path="/industrial" element={<IndustrialOverview />} />
+          <Route path="/industrial/twin" element={<IndustrialTwin />} />
+          <Route path="/industrial/lines" element={<IndustrialLines />} />
+          <Route path="/industrial/machines" element={<IndustrialMachines />} />
+          <Route path="/industrial/sensors" element={<IndustrialSensors />} />
+          <Route path="/industrial/quality" element={<IndustrialQuality />} />
+          <Route path="/industrial/safety" element={<IndustrialSafety />} />
+          <Route path="/industrial/alerts" element={<IndustrialAlerts />} />
+          <Route path="/industrial/replay" element={<IndustrialReplay />} />
 
           {/* Energy */}
-          <Route path="/domains/energy" element={<EnergyOverview />} />
-          <Route path="/domains/energy/twin" element={<EnergyTwin />} />
-          <Route path="/domains/energy/substations" element={<EnergySubstations />} />
-          <Route path="/domains/energy/transformers" element={<EnergyTransformers />} />
-          <Route path="/domains/energy/feeders" element={<EnergyFeeders />} />
-          <Route path="/domains/energy/renewables" element={<EnergyRenewables />} />
-          <Route path="/domains/energy/battery" element={<EnergyBattery />} />
-          <Route path="/domains/energy/alerts" element={<EnergyAlerts />} />
-          <Route path="/domains/energy/replay" element={<EnergyReplay />} />
+          <Route path="/energy" element={<EnergyOverview />} />
+          <Route path="/energy/twin" element={<EnergyTwin />} />
+          <Route path="/energy/substations" element={<EnergySubstations />} />
+          <Route path="/energy/transformers" element={<EnergyTransformers />} />
+          <Route path="/energy/feeders" element={<EnergyFeeders />} />
+          <Route path="/energy/renewables" element={<EnergyRenewables />} />
+          <Route path="/energy/battery" element={<EnergyBattery />} />
+          <Route path="/energy/alerts" element={<EnergyAlerts />} />
+          <Route path="/energy/replay" element={<EnergyReplay />} />
 
           {/* Water */}
-          <Route path="/domains/water" element={<WaterOverview />} />
-          <Route path="/domains/water/twin" element={<WaterTwin />} />
-          <Route path="/domains/water/reservoirs" element={<WaterReservoirs />} />
-          <Route path="/domains/water/pumps" element={<WaterPumps />} />
-          <Route path="/domains/water/valves" element={<WaterValves />} />
-          <Route path="/domains/water/quality" element={<WaterQuality />} />
-          <Route path="/domains/water/leaks" element={<WaterLeaks />} />
-          <Route path="/domains/water/alerts" element={<WaterAlerts />} />
-          <Route path="/domains/water/replay" element={<WaterReplay />} />
+          <Route path="/water" element={<WaterOverview />} />
+          <Route path="/water/twin" element={<WaterTwin />} />
+          <Route path="/water/reservoirs" element={<WaterReservoirs />} />
+          <Route path="/water/pumps" element={<WaterPumps />} />
+          <Route path="/water/valves" element={<WaterValves />} />
+          <Route path="/water/quality" element={<WaterQuality />} />
+          <Route path="/water/leaks" element={<WaterLeaks />} />
+          <Route path="/water/alerts" element={<WaterAlerts />} />
+          <Route path="/water/replay" element={<WaterReplay />} />
 
-          {/* Legacy fallback for traffic / catchall */}
-          <Route path="/domains/:domain" element={<DomainTwin />} />
+          {/* Legacy aliases */}
+          <Route path="/domains" element={<Navigate to="/" replace/>}/>
+          <Route path="/domains/:domain/*" element={<Navigate to="/" replace/>}/>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <footer className="footer-bar">
-          <span>HYD-ITMS / OPERATIONS BUILD 2.5.0</span>
+          <span>MULTI-DOMAIN DIGITAL TWIN PLATFORM · 3.0.0</span>
           <span><i className="pulse-dot"/> All systems nominal</span>
-          <span>DATA REFRESH 2S · NODE HYD-01</span>
+          <span>DATA REFRESH 2S · WS MULTIPLEX</span>
         </footer>
       </main>
       <AssistantDrawer open={assistantOpen} onClose={() => setAssistantOpen(false)} />

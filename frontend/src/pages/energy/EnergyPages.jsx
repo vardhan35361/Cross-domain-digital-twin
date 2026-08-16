@@ -17,11 +17,11 @@ export function EnergyOverview() {
   if (!snap.ready) return <Loader/>;
   const { kpis } = snap;
   const tiles = [
-    { to: "/domains/energy/substations", label: "Substations", icon: TowerControl, stat: `${kpis.substations_online} online` },
-    { to: "/domains/energy/transformers", label: "Transformers", icon: Wrench, stat: `${kpis.transformers_online} online` },
-    { to: "/domains/energy/feeders", label: "Feeders", icon: LC, stat: `${kpis.feeders_online} energised` },
-    { to: "/domains/energy/renewables", label: "Solar & wind", icon: Sun, stat: `${kpis.renewable_mw} MW` },
-    { to: "/domains/energy/battery", label: "Battery", icon: Fuel, stat: `${kpis.battery_percent}%` },
+    { to: "/energy/substations", label: "Substations", icon: TowerControl, stat: `${kpis.substations_online} online` },
+    { to: "/energy/transformers", label: "Transformers", icon: Wrench, stat: `${kpis.transformers_online} online` },
+    { to: "/energy/feeders", label: "Feeders", icon: LC, stat: `${kpis.feeders_online} energised` },
+    { to: "/energy/renewables", label: "Solar & wind", icon: Sun, stat: `${kpis.renewable_mw} MW` },
+    { to: "/energy/battery", label: "Battery", icon: Fuel, stat: `${kpis.battery_percent}%` },
   ];
   return (
     <div className="page domain-workspace" data-testid="workspace-energy-overview">
