@@ -1,0 +1,35 @@
+{
+  "summary": "Iter-9 verified the multi-domain workspace enrichment end-to-end. Backend: /app/backend/tests/test_iter9_workspaces.py runs 26 tests / 26 PASS covering (a) domain snapshot shape incl. hospital.icu_beds count == 18 with vitals and er_queue non-empty, (b) real operator actions with GET-verify persistence for hospital (icu_bed.discharge, ward.offline+restore, ambulance.dispatch), energy (substation.isolate cascading transformers+feeders to OFFLINE+de-energized, feeder.deenergize/energize), water (valve.close/open, pump.stop/start), building (hvac.setpoint, elevator.maintenance/restore), industrial (machine.stop/restart), (c) 60-minute replay history endpoint returning frame_count>0 for all 5 domains, (d) Prometheus /api/metrics exposing both traffic_active_vehicles and twin_hospital_occupancy_percent gauges, (e) simulation tick advancing (persistence proxy), (f) multiplexed WebSocket /api/ws/twins delivering domain_snapshot envelopes for all 5 non-traffic domains inside 12s. Frontend Playwright: super@hyderabad.gov.in login succeeds; /domains/hospital/icu renders workspace-hospital-icu with data-testid=icu-bed-table containing exactly 18 rows; clicking discharge-icu-bed-03 triggers the confirm dialog, hits POST /api/twins/hospital/action, and the same row re-renders as 'Empty / — / — / — / NORMAL' via the WS broadcast within ~2s. /domains/hospital/er shows er-queue-table with 20 populated rows and triage pie chart. /domains/hospital/wards: offline-dept-er click → confirm → row transitions to OFFLINE and a restore-dept-er button appears in-place. /domains/hospital/ambulances: dispatch-amb-01 click succeeds and row moves to en_route. All non-hospital workspaces (workspace-energy-substations, workspace-water-valves, workspace-building-hvac, workspace-industrial-machines) mount cleanly. /domains/hospital/replay: 104 frames loaded, slider max=103, timestamp+scenario+KPI chips render, operator-action chips (icu_bed.discharge, ward.offline, ward.restore, ambulance.dispatch) are visible in OPERATOR ACTIONS panel. WsProvider connects a single wss://.../api/ws/twins (only 1 unique URL, /api/ws/twins reused; the 10 open events in the trace were caused by Playwright's page.goto full reloads — a real user clicking sidebar nav keeps a single socket per SPA session).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ReplayTimeline (all domains)", "issue": "React 'two children with the same key' warning floods the console on the replay page. events list is built via `frames.slice(0, idx+1).flatMap(f => (f.state?.events || []).slice(0, 3))` — because each history frame retains the same historical events array, the same event id (e.g. EVT-4541AB) appears in many frames and React dedup keys collide. Fix: dedupe by event.id before mapping, or use a compound key `${frame.tick}-${e.id}-${i}`.", "selector": "[data-testid$='-replay-events']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter9_workspaces.py",
+    "/app/test_reports/pytest/iter9_workspaces.xml"
+  ],
+  "action_items": [
+    "ReplayTimeline: dedupe operator-action events by id (or use compound React key) to eliminate console-level 'duplicate key' warnings on every /domains/{d}/replay page."
+  ],
+  "critical_code_review_comments": [
+    "ReplayTimeline events aggregator (shared/ReplayTimeline.jsx L50-51) re-emits the same event.id across many frames — refactor to `Array.from(new Map(events.map(e=>[e.id,e])).values())` or key on (frame.tick + event.id) to satisfy React key uniqueness.",
+    "twins.py `substation.restore` sets a hardcoded load_mw=60 (L906) — real cascade should re-energize transformers[substation=sid] symmetrically (only feeders are re-flagged today; transformer.status is not restored, so isolate→restore leaves transformers under that substation still marked t.status remained 'online' but state briefly OFFLINE, will self-heal on next tick, but consider explicit symmetry).",
+    "twins.py L1122 broadcaster payload sends full domain state on every action — for a 6-domain multi-tenant deploy this could be heavy. Consider diffing or emitting only the mutated sub-tree (dept/bed/valve).",
+    "WsProvider (state/WsProvider.jsx) uses a 20s client heartbeat while server receive timeout is 25s — good, but the exponential backoff never resets to 1000ms after N successful heartbeats (only on onopen). If the browser tab is throttled and then unfrozen mid-reconnect, the delay may stay at ~15s. Consider resetting backoff after any recv message.",
+    "Frontend deep link /domains/energy/substations does NOT expose per-row testids for isolate actions (data-testid='action-energy-substation.isolate' resolves but query-selector attribute matching with '.' can be brittle) — action buttons get data-testid=`action-energy-substation.isolate` via the ActionButton default; consider providing a stable per-row testId like `isolate-${row.id}` in EnergyPages.jsx to match the hospital/water pattern (hospital already uses `dispatch-${r.id}`)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter9_workspaces.py (new)"
+  ],
+  "success_rate": {"backend": "100% (26/26)", "frontend": "100% for the flows exercised — Hospital ICU discharge, ER queue populated, ward offline+restore, ambulance dispatch, energy/water/building/industrial workspaces mount, hospital replay 104 frames"},
+  "test_credentials": "super@hyderabad.gov.in / Hyderabad@2026",
+  "seed_data_creation": "None (tests re-open valve/pump/feeder/elevator/machine to leave state clean).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "test_iter9_workspaces.py loads REACT_APP_BACKEND_URL from /app/frontend/.env if not in env. Run with: `python -m pytest backend/tests/test_iter9_workspaces.py -o addopts=''` (project pytest.ini adds xdist loadscope which needs -o override). All 5 non-traffic domain workspaces have testids workspace-{domain}-{module}; ActionButton default testid pattern is `action-{domain}-{action}` — some pages override with per-row ids (hospital dispatch-{amb_id}, discharge-{bed_id}, offline-{dept_id}). Energy pages currently do NOT override, so isolate button resolves as [data-testid='action-energy-substation.isolate'] (note the '.' in attribute selector).",
+  "rca of the issue": "Replay React key warning RCA: ReplayTimeline builds the events list by concatenating (f.state.events).slice(0,3) across every frame index in [0..idx]. The backend records history via copy.deepcopy(state) each tick, so every subsequent frame's events[] still contains the earlier action event with the SAME event.id. When flatMapped, the same id ends up multiple times → React logs 'two children with the same key'. Mitigation: dedupe by id before rendering, e.g. `Array.from(new Map(events.map(e=>[e.id,e])).values()).slice(-8)`."
+}

@@ -1,31 +1,41 @@
-# Multi-Domain Digital Twin Operating Platform — PRD (v3.5.0)
+# Multi-Domain Digital Twin OS — PRD
 
-## Original Problem
-Transform the Traffic ITMS into a scalable Digital Twin Operating Platform where six physical-world domains share one engine but each has a distinct operational experience with dedicated 3D scene, sidebar, KPIs, simulation, alerts and events.
+## Vision
+A cinematic multi-domain digital-twin operating system for city-scale operations. Six independent
+physical domains — **Traffic (ITMS Hyderabad), Hospital, Building, Industrial, Energy, Water** —
+each with real state, entities, KPIs, operator actions, 60-min replay, 3D visualisation, alerts,
+and JWT role-based access.
 
-## Architecture (delta from v3.0)
-- **Shared 3D engine (DomainScene.jsx)**: single Three.js Canvas with per-domain scene component (HospitalScene / BuildingScene / IndustrialScene / EnergyScene / WaterScene). Reuses OrbitControls, lighting, camera, materials.
-- **MongoDB persistence (backend/server.py + twins.py)**: `twin_state` collection with unique index on `domain`; checkpoint every 15 simulation ticks (~30s) via `_persist_domain_state()`; startup `_load_domain_store()` restores every non-Traffic domain's tick, scenario, entities.
-- **Domain-aware WebSocket**: `/api/ws/traffic` (kept for compatibility) now also emits `{kind: "domain_snapshot", data: {domain, state, kpis, tick, scenario, running}}` for all 5 non-Traffic domains every tick. Frontend `DomainTwin.jsx` subscribes directly — no more 3-second REST polling.
-- **Per-domain sidebar (Sidebar.jsx)**: `activeDomain` from `DomainContext` gates `TRAFFIC_NAV` vs `domainNav(id)`; brand mark, mode chip, and every nav item flip per active domain.
+## Architecture
+- **Backend**: FastAPI + MongoDB, one multiplexed WS `/api/ws/twins`, per-domain rolling
+  1800-frame history buffer, domain-agnostic operator-action engine with cascading state
+  mutations, Prometheus metrics endpoint `/api/metrics`.
+- **Frontend**: React 19, Three.js/R3F, per-domain sidebar with real sub-routes (~30 pages),
+  data-driven Workspace shell, ReplayTimeline scrubber, OperatorAction UI.
+- **Observability**: docker-compose bundles Prometheus + Grafana with 7 auto-provisioned
+  dashboards (traffic, hospital, building, industrial, energy, water, system).
+- **CI/CD**: Expanded Jenkins pipeline with per-domain smoke + operator + replay stages.
 
-## Verified P0 Deliverables (iter_8)
-- ✅ Backend restart preserves scenario + tick + entities (Mongo `twin_state`)
-- ✅ WebSocket delivers `domain_snapshot` for all 5 domains within 12s of connect
-- ✅ Hospital, Building, Industrial, Energy, Water each have a distinct 3D scene (floor plates + dept blocks, coloured floor plates with occupancy heatmap, production lines + tanks, radial substations + solar/wind, cylindrical reservoirs + pipeline + pumps)
-- ✅ Sidebar transforms per active domain (mode chip + nav items)
-- ✅ Deep-link to `/domains/energy` renders correct sidebar + scene + chip highlight on first paint
-- ✅ 32/32 backend + 9/9 frontend scenarios pass; 0 bugs
+## Completed (this fork)
+- Enriched every non-traffic domain with real sub-entities (ICU beds, ER queue with triage,
+  individual HVAC zones, HVAC + elevator + access doors, ~12 individual machines with
+  temperature/vibration, transformers + feeders per substation, valves + pipeline segments).
+- Operator Action Engine with 25+ mutations across all five non-traffic domains
+  + traffic road close. Substation isolate cascades to transformers + feeders.
+- 60-minute rolling history per domain — 1800 frames @ 2s tick, replayed via UI.
+- Single multiplexed WebSocket `/api/ws/twins` with domain envelopes, heartbeats, resync.
+- ~30 dedicated frontend workspace pages (Hospital ICU/ER/Wards/Equipment/Ambulances/
+  Pharmacy/Alerts/Replay/Twin + equivalents for Building/Industrial/Energy/Water).
+- Grafana provisioning (Prometheus datasource + 7 dashboards).
+- Backend self-tests (`domain_simulation_test`, `operator_action_test`,
+  `websocket_replay_test`) all green.
 
-## Backlog / Next Phases (explicitly deferred, tracked)
-- P1: Per-domain replay page + timeline scrubber (currently only Traffic has replay)
-- P1: Per-domain analytics workspace with Recharts (currently only Traffic has analytics)
-- P1: Multiplex single WebSocket in a `WsProvider` — today `DomainTwin.jsx` opens/closes on each mount (works but wasteful across 6 hops)
-- P1: `simulation_loop()` refactor into `_tick_traffic()` / `_tick_domains()` / `_broadcast_all()` helpers for testability
-- P1: Persist last-successful checkpoint timestamp; surface in `/api/system/health` so operators see if Mongo went silent
-- P2: Jenkins pipeline: add domain-integration stage referencing `test_iter8_persistence_ws.py`
-- P2: Grafana as a docker-compose service with auto-provisioned domain dashboards
-- P2: Per-domain operator actions (adjust HVAC, isolate substation, close valve) mutating twin state
+## Test credentials
+See `/app/memory/test_credentials.md` — Super Admin: `super@hyderabad.gov.in / Hyderabad@2026`.
 
-## Health
-Backend + Frontend + Mongo persistence all green. Every visible control performs a real action. No fake LIVE labels. Traffic ITMS + RBAC + drone/CCTV + audit trail fully preserved.
+## Backlog / Future
+- P2: 3D scene focus targeting per module (currently uses shared DomainScene without
+  camera focus animation)
+- P2: Grafana annotation from operator-action audit stream
+- P2: Alert deduplication policies (currently basic dedup on dedup_key)
+- P3: Full E2E in Jenkins via headless Playwright container

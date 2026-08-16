@@ -19,7 +19,10 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 
 from auth import ROLES, SEED_ACCOUNTS, build_router as build_auth_router, record_audit, seed_users
-from twins import build_twins_router, init_all_domains, tick_all_domains, KPI_FNS as _TWIN_KPI_FNS
+from twins import (
+    build_twins_router, init_all_domains, tick_all_domains,
+    KPI_FNS as _TWIN_KPI_FNS, record_history, HISTORY,
+)
 
 
 def _domain_kpis(domain: str, dstate: Dict[str, Any]) -> Dict[str, Any]:
@@ -667,11 +670,115 @@ async def traffic_socket(websocket: WebSocket):
     finally:
         state["clients"].discard(websocket)
 
+
+@app.websocket("/api/ws/twins")
+async def twins_socket(websocket: WebSocket):
+    """Multiplexed WebSocket serving ALL domains under a single connection.
+    Envelope: {kind, data:{domain,...}} — clients filter by domain."""
+    await websocket.accept()
+    state["clients"].add(websocket)
+    try:
+        # Immediate resync: send traffic + every non-traffic snapshot
+        await websocket.send_json({"kind": "snapshot", "data": {"domain": "traffic", **snapshot()}})
+        for domain, dstate in state["domain_store"].items():
+            await websocket.send_json({"kind": "domain_snapshot", "data": {
+                "domain": domain, "state": dstate,
+                "kpis": _domain_kpis(domain, dstate),
+                "tick": dstate.get("tick", 0), "scenario": dstate.get("scenario"),
+                "running": dstate.get("running", True)}})
+        while True:
+            # Keep the connection open; simulation_loop pushes broadcasts.
+            # Client may send a ping/heartbeat.
+            try:
+                msg = await asyncio.wait_for(websocket.receive_text(), timeout=25)
+                if msg:
+                    await websocket.send_json({"kind": "pong", "at": datetime.now(timezone.utc).isoformat()})
+            except asyncio.TimeoutError:
+                await websocket.send_json({"kind": "heartbeat", "at": datetime.now(timezone.utc).isoformat()})
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        state["clients"].discard(websocket)
+
+
+# ---- Traffic history + actions ----
+@router.get("/traffic/history")
+async def traffic_history(minutes: int = 60):
+    max_frames = min(len(state["history"]), max(1, int(minutes * 60 / 2)))
+    frames = state["history"][-max_frames:]
+    return {"domain": "traffic", "minutes": minutes, "frame_count": len(frames),
+            "first_at": frames[0]["time"] if frames else None,
+            "last_at": frames[-1]["time"] if frames else None,
+            "frames": frames}
+
+
+class RoadCloseCmd(BaseModel):
+    road_id: str
+    closed: bool = True
+
+
+@router.post("/traffic/action/road.close")
+async def traffic_road_close(cmd: RoadCloseCmd, request: Request):
+    road = ROAD_BY_ID.get(cmd.road_id)
+    if not road:
+        raise HTTPException(status_code=404, detail="Road not found")
+    road["closed"] = cmd.closed
+    road["congestion"] = 100 if cmd.closed else 40
+    await record_audit(db, None, "traffic.road.close" if cmd.closed else "traffic.road.open",
+                      cmd.road_id, meta={"closed": cmd.closed},
+                      ip=request.client.host if request.client else "-")
+    return {"road_id": cmd.road_id, "closed": cmd.closed, "congestion": road["congestion"]}
+
 app.include_router(router)
 auth_router_bundle = build_auth_router(db, lambda: state)
 auth_router, _current_user_dep, _require_perm_dep, _record_audit = auth_router_bundle
 app.include_router(auth_router)
-app.include_router(build_twins_router(lambda: state["domain_store"]))
+
+
+async def _twin_audit(action: str, target: str = "-", meta: Optional[Dict[str, Any]] = None):
+    """Audit hook used by twin router when operator actions execute."""
+    await record_audit(db, None, action, target, meta=meta or {}, ip="-")
+
+
+async def _twin_broadcast(kind: str, data: Any):
+    """Deferred broadcast: real function is defined later in this module."""
+    await broadcast(kind, data)
+
+
+app.include_router(build_twins_router(lambda: state["domain_store"], broadcaster=_twin_broadcast, auditor=_twin_audit))
+
+
+# ============================================================
+# Prometheus metrics endpoint (for Grafana)
+# ============================================================
+from fastapi import Response  # noqa: E402
+from prometheus_client import CollectorRegistry, Gauge, generate_latest, CONTENT_TYPE_LATEST  # noqa: E402
+
+
+@app.get("/api/metrics", include_in_schema=False)
+async def prometheus_metrics():
+    """Live per-domain KPIs exposed in Prometheus text format."""
+    reg = CollectorRegistry()
+    # Traffic
+    m = metrics()
+    for key, val in m.items():
+        if isinstance(val, (int, float)):
+            Gauge(f"traffic_{key}", f"Traffic {key}", registry=reg).set(val)
+    for name, val in (("clients", len(state["clients"])), ("tick", state["tick"]),
+                      ("history_frames", len(state["history"]))):
+        Gauge(f"traffic_{name}", f"Traffic {name}", registry=reg).set(val)
+
+    # Non-traffic domains
+    for domain, dstate in state["domain_store"].items():
+        kpis = _TWIN_KPI_FNS[domain](dstate)
+        Gauge(f"twin_{domain}_tick", f"{domain} simulation tick", registry=reg).set(dstate.get("tick", 0))
+        Gauge(f"twin_{domain}_running", f"{domain} running flag", registry=reg).set(1 if dstate.get("running") else 0)
+        Gauge(f"twin_{domain}_history_frames", "history frames", registry=reg).set(len(HISTORY.get(domain, [])))
+        for kpi_name, kpi_val in kpis.items():
+            if isinstance(kpi_val, (int, float)):
+                Gauge(f"twin_{domain}_{kpi_name}", f"{domain} {kpi_name}", registry=reg).set(kpi_val)
+    payload = generate_latest(reg)
+    return Response(content=payload, media_type=CONTENT_TYPE_LATEST)
 app.add_middleware(CORSMiddleware, allow_credentials=True,
                    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
                    allow_methods=["*"], allow_headers=["*"])
@@ -753,9 +860,11 @@ async def simulation_loop():
             if state["convoy"]["progress"] >= 1.0:
                 state["convoy"]["status"] = "completed"
         state["history"].append({"tick": state["tick"], "time": state["updated_at"], "metrics": metrics()})
-        state["history"] = state["history"][-120:]
-        # Tick every registered non-traffic domain
+        state["history"] = state["history"][-1800:]
+        # Tick every registered non-traffic domain + record per-domain history
         tick_all_domains(state["domain_store"])
+        for domain, dstate in state["domain_store"].items():
+            record_history(domain, dstate)
         # Persist twin state every 15 ticks (~30s) — cheap, event-driven survivability
         if state["tick"] % 15 == 0:
             await _persist_domain_state()
@@ -774,7 +883,7 @@ async def _load_domain_store() -> Dict[str, Any]:
         cursor = db.twin_state.find({})
         async for doc in cursor:
             domain = doc.get("domain")
-            if domain in store and "state" in doc:
+            if domain in store and "state" in doc and doc.get("schema_version", 0) >= 2:
                 # merge persisted state (scenario, tick, entities) on top of freshly initialised structure
                 for k, v in doc["state"].items():
                     store[domain][k] = v
@@ -788,7 +897,8 @@ async def _persist_domain_state() -> None:
         for domain, dstate in state["domain_store"].items():
             await db.twin_state.update_one(
                 {"domain": domain},
-                {"$set": {"domain": domain, "state": dstate, "updated_at": datetime.now(timezone.utc)}},
+                {"$set": {"domain": domain, "state": dstate, "schema_version": 2,
+                          "updated_at": datetime.now(timezone.utc)}},
                 upsert=True,
             )
     except Exception as exc:
