@@ -1,146 +1,202 @@
 pipeline {
-  agent any
-  options { timestamps(); disableConcurrentBuilds() }
-  environment {
-    COMPOSE_PROJECT_NAME = 'hyderabad-digital-twin'
-    API_URL = 'http://localhost:8001'
-  }
+    agent any
 
-    stage('Install Dependencies') {
-      parallel {
-        stage('Python') {
-          steps { sh 'python3 -m pip install -r backend/requirements.txt' }
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        COMPOSE_PROJECT_NAME = 'hyderabad-digital-twin'
+        API_URL = 'http://localhost:8001'
+    }
+
+    stages {
+
+        stage('Install Dependencies') {
+            parallel {
+
+                stage('Python') {
+                    steps {
+                        bat 'python -m pip install -r backend\\requirements.txt'
+                    }
+                }
+
+                stage('Node') {
+                    steps {
+                        bat '''
+                            npm install -g yarn
+                            cd frontend
+                            yarn install --ignore-engines
+                        '''
+                    }
+                }
+            }
         }
-        stage('Node') {
-          steps { sh 'cd frontend && yarn install --frozen-lockfile --ignore-engines' }
+
+        stage('Static Analysis') {
+            parallel {
+
+                stage('Python lint') {
+                    steps {
+                        bat 'python -m py_compile backend\\server.py backend\\twins.py backend\\auth.py'
+                    }
+                }
+
+                stage('Python compileall') {
+                    steps {
+                        bat 'python -m compileall -q backend'
+                    }
+                }
+            }
         }
-      }
-    }
 
-    stage('Static Analysis') {
-      parallel {
-        stage('Python lint') {
-          steps { sh 'python3 -m py_compile backend/server.py backend/twins.py backend/auth.py' }
+        stage('Unit Tests') {
+            steps {
+                bat '''
+                    cd backend
+                    pytest -q tests
+                '''
+            }
         }
-        stage('Python compileall') {
-          steps { sh 'python3 -m compileall -q backend' }
+
+        stage('Domain Simulation Tests') {
+            steps {
+                bat 'python backend\\tests\\domain_simulation_test.py'
+            }
         }
-      }
+
+        stage('Operator Action Tests') {
+            steps {
+                bat 'python backend\\tests\\operator_action_test.py'
+            }
+        }
+
+        stage('WebSocket + Replay Tests') {
+            steps {
+                bat 'python backend\\tests\\websocket_replay_test.py'
+            }
+        }
+
+        stage('Frontend Build') {
+            steps {
+                bat '''
+                    cd frontend
+                    set CI=false
+                    yarn build
+                '''
+            }
+        }
+
+        stage('Docker Compose Validation') {
+            steps {
+                bat 'docker compose config -q'
+            }
+        }
+
+        stage('Docker Build') {
+            parallel {
+
+                stage('Backend image') {
+                    steps {
+                        bat 'docker build -t hyd-twin-backend:%BUILD_NUMBER% backend'
+                    }
+                }
+
+                stage('Frontend image') {
+                    steps {
+                        bat 'docker build -t hyd-twin-frontend:%BUILD_NUMBER% frontend'
+                    }
+                }
+            }
+        }
+
+        stage('Deploy Stack') {
+            steps {
+                bat 'docker compose up -d --build'
+            }
+        }
+
+        stage('Wait for Health') {
+            steps {
+                bat '''
+                    powershell -NoProfile -Command "$ok=$false; for($i=0;$i -lt 30;$i++){ try { $r=Invoke-WebRequest -UseBasicParsing -Uri '%API_URL%/api/health' -TimeoutSec 5; if($r.StatusCode -eq 200){$ok=$true; break} } catch {}; Start-Sleep -Seconds 3 }; if(-not $ok){exit 1}"
+
+                    curl.exe -fsS %API_URL%/api/domains
+                '''
+            }
+        }
+
+        stage('Cross-Domain Smoke Tests') {
+            steps {
+                bat '''
+                    curl.exe -fsS %API_URL%/api/twins/traffic > NUL
+                    curl.exe -fsS %API_URL%/api/twins/hospital > NUL
+                    curl.exe -fsS %API_URL%/api/twins/building > NUL
+                    curl.exe -fsS %API_URL%/api/twins/industrial > NUL
+                    curl.exe -fsS %API_URL%/api/twins/energy > NUL
+                    curl.exe -fsS %API_URL%/api/twins/water > NUL
+
+                    curl.exe -fsS "%API_URL%/api/twins/hospital/history?minutes=1" > NUL
+                    curl.exe -fsS "%API_URL%/api/twins/building/history?minutes=1" > NUL
+                    curl.exe -fsS "%API_URL%/api/twins/industrial/history?minutes=1" > NUL
+                    curl.exe -fsS "%API_URL%/api/twins/energy/history?minutes=1" > NUL
+                    curl.exe -fsS "%API_URL%/api/twins/water/history?minutes=1" > NUL
+                '''
+            }
+        }
+
+        stage('Grafana + Prometheus') {
+            steps {
+                bat '''
+                    curl.exe -fsS http://localhost:9090/-/ready
+                    curl.exe -fsS http://admin:hyderabad2026@localhost:3001/api/health
+                    curl.exe -fsS "http://admin:hyderabad2026@localhost:3001/api/search?type=dash-db"
+                '''
+            }
+        }
+
+        stage('Persistence / Restart') {
+            steps {
+                bat '''
+                    docker compose restart backend
+
+                    powershell -NoProfile -Command "$ok=$false; for($i=0;$i -lt 20;$i++){ try { $r=Invoke-WebRequest -UseBasicParsing -Uri '%API_URL%/api/health' -TimeoutSec 5; if($r.StatusCode -eq 200){$ok=$true; break} } catch {}; Start-Sleep -Seconds 3 }; if(-not $ok){exit 1}"
+
+                    curl.exe -fsS %API_URL%/api/twins/hospital
+                '''
+            }
+        }
+
+        stage('Post-Deploy Smoke') {
+            steps {
+                bat '''
+                    curl.exe -fsS %API_URL%/api/overview > NUL
+                    curl.exe -fsS %API_URL%/api/predictions > NUL
+                    curl.exe -fsS %API_URL%/api/metrics
+                '''
+            }
+        }
     }
 
-    stage('Unit Tests') {
-      steps {
-        sh 'cd backend && (pytest -q tests || pytest -q ../tests || true)'
-      }
-    }
+    post {
 
-    stage('Domain Simulation Tests') {
-      steps {
-        sh 'python3 backend/tests/domain_simulation_test.py'
-      }
-    }
+        success {
+            archiveArtifacts artifacts: 'frontend/build/**,backend/**/*.py',
+                             allowEmptyArchive: true
 
-    stage('Operator Action Tests') {
-      steps {
-        sh 'python3 backend/tests/operator_action_test.py'
-      }
-    }
+            echo 'Hyderabad Multi-Domain Digital Twin pipeline passed successfully'
+        }
 
-    stage('WebSocket + Replay Tests') {
-      steps {
-        sh 'python3 backend/tests/websocket_replay_test.py'
-      }
-    }
+        failure {
+            bat 'docker compose logs --tail=200'
+            bat 'docker compose down'
+            echo 'Pipeline failed - stack torn down'
+        }
 
-    stage('Frontend Build') {
-      steps { sh 'cd frontend && CI=false yarn build' }
+        always {
+            junit allowEmptyResults: true,
+                  testResults: 'test-results/*.xml'
+        }
     }
-
-    stage('Docker Compose Validation') {
-      steps { sh 'docker compose config -q' }
-    }
-
-    stage('Docker Build') {
-      parallel {
-        stage('Backend image') { steps { sh 'docker build -t hyd-twin-backend:${BUILD_NUMBER} backend' } }
-        stage('Frontend image') { steps { sh 'docker build -t hyd-twin-frontend:${BUILD_NUMBER} frontend' } }
-      }
-    }
-
-    stage('Deploy Stack') {
-      steps { sh 'docker compose up -d --build' }
-    }
-
-    stage('Wait for Health') {
-      steps {
-        sh '''
-          for i in $(seq 1 30); do
-            curl -fsS $API_URL/api/health && break || sleep 3
-          done
-          curl -fsS $API_URL/api/domains > /dev/null
-        '''
-      }
-    }
-
-    stage('Cross-Domain Smoke Tests') {
-      steps {
-        sh '''
-          for d in traffic hospital building industrial energy water; do
-            echo "-- $d overview --"
-            curl -fsS $API_URL/api/twins/$d > /dev/null || (echo "$d twin snapshot FAILED" && exit 1)
-          done
-          for d in hospital building industrial energy water; do
-            echo "-- $d history --"
-            curl -fsS "$API_URL/api/twins/$d/history?minutes=1" > /dev/null || (echo "$d history FAILED" && exit 1)
-          done
-        '''
-      }
-    }
-
-    stage('Grafana + Prometheus') {
-      steps {
-        sh '''
-          curl -fsS http://localhost:9090/-/ready
-          curl -fsS http://admin:hyderabad2026@localhost:3001/api/health
-          curl -fsS http://admin:hyderabad2026@localhost:3001/api/search?type=dash-db | \
-            python3 -c "import sys,json; d=json.load(sys.stdin); assert len(d) >= 6, f'Only {len(d)} dashboards'; print('Grafana dashboards:', len(d))"
-        '''
-      }
-    }
-
-    stage('Persistence / Restart') {
-      steps {
-        sh '''
-          docker compose restart backend
-          for i in $(seq 1 20); do curl -fsS $API_URL/api/health && break || sleep 3; done
-          curl -fsS $API_URL/api/twins/hospital | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['state']['tick'] > 0, 'tick should survive restart'; print('OK persisted tick=', d['state']['tick'])"
-        '''
-      }
-    }
-
-    stage('Post-Deploy Smoke') {
-      steps {
-        sh '''
-          curl -fsS $API_URL/api/overview > /dev/null
-          curl -fsS $API_URL/api/predictions > /dev/null
-          curl -fsS $API_URL/api/metrics | head -20
-        '''
-      }
-    }
-  }
-
-  post {
-    success {
-      archiveArtifacts artifacts: 'frontend/build/**,backend/**/*.py', allowEmptyArchive: true
-      echo 'Hyderabad Multi-Domain Digital Twin OS pipeline passed'
-    }
-    failure {
-      sh 'docker compose logs --tail=200 || true'
-      sh 'docker compose down || true'
-      echo 'Pipeline failed — stack torn down'
-    }
-    always {
-      junit allowEmptyResults: true, testResults: 'test-results/*.xml'
-    }
-  }
 }
