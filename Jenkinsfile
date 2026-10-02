@@ -9,25 +9,41 @@ pipeline {
     environment {
         COMPOSE_PROJECT_NAME = 'hyderabad-digital-twin'
         API_URL = 'http://localhost:8001'
+
+        PYTHON = 'C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'
+        DOCKER = 'C:\\Users\\admin\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin\\docker.exe'
+        NODE_HOME = 'C:\\Program Files\\nodejs'
     }
 
     stages {
+
+        stage('Environment Check') {
+            steps {
+                bat '''
+                    "%PYTHON%" --version
+                    "%DOCKER%" --version
+                    "%DOCKER%" compose version
+                    "%NODE_HOME%\\node.exe" --version
+                    "%NODE_HOME%\\npm.cmd" --version
+                '''
+            }
+        }
 
         stage('Install Dependencies') {
             parallel {
 
                 stage('Python') {
                     steps {
-                        bat 'python -m pip install -r backend\\requirements.txt'
+                        bat '''
+                            "%PYTHON%" -m pip install -r backend\\requirements.txt
+                        '''
                     }
                 }
 
                 stage('Node') {
                     steps {
                         bat '''
-                            npm install -g yarn
-                            cd frontend
-                            yarn install --ignore-engines
+                            "%NODE_HOME%\\npm.cmd" install
                         '''
                     }
                 }
@@ -39,13 +55,17 @@ pipeline {
 
                 stage('Python lint') {
                     steps {
-                        bat 'python -m py_compile backend\\server.py backend\\twins.py backend\\auth.py'
+                        bat '''
+                            "%PYTHON%" -m py_compile backend\\server.py backend\\twins.py backend\\auth.py
+                        '''
                     }
                 }
 
                 stage('Python compileall') {
                     steps {
-                        bat 'python -m compileall -q backend'
+                        bat '''
+                            "%PYTHON%" -m compileall -q backend
+                        '''
                     }
                 }
             }
@@ -54,27 +74,32 @@ pipeline {
         stage('Unit Tests') {
             steps {
                 bat '''
-                    cd backend
-                    pytest -q tests
+                    "%PYTHON%" -m pytest -q tests
                 '''
             }
         }
 
         stage('Domain Simulation Tests') {
             steps {
-                bat 'python backend\\tests\\domain_simulation_test.py'
+                bat '''
+                    "%PYTHON%" backend\\tests\\domain_simulation_test.py
+                '''
             }
         }
 
         stage('Operator Action Tests') {
             steps {
-                bat 'python backend\\tests\\operator_action_test.py'
+                bat '''
+                    "%PYTHON%" backend\\tests\\operator_action_test.py
+                '''
             }
         }
 
         stage('WebSocket + Replay Tests') {
             steps {
-                bat 'python backend\\tests\\websocket_replay_test.py'
+                bat '''
+                    "%PYTHON%" backend\\tests\\websocket_replay_test.py
+                '''
             }
         }
 
@@ -82,15 +107,16 @@ pipeline {
             steps {
                 bat '''
                     cd frontend
-                    set CI=false
-                    yarn build
+                    "%NODE_HOME%\\npm.cmd" run build
                 '''
             }
         }
 
         stage('Docker Compose Validation') {
             steps {
-                bat 'docker compose config -q'
+                bat '''
+                    "%DOCKER%" compose config -q
+                '''
             }
         }
 
@@ -99,13 +125,17 @@ pipeline {
 
                 stage('Backend image') {
                     steps {
-                        bat 'docker build -t hyd-twin-backend:%BUILD_NUMBER% backend'
+                        bat '''
+                            "%DOCKER%" build -t hyd-twin-backend:%BUILD_NUMBER% backend
+                        '''
                     }
                 }
 
                 stage('Frontend image') {
                     steps {
-                        bat 'docker build -t hyd-twin-frontend:%BUILD_NUMBER% frontend'
+                        bat '''
+                            "%DOCKER%" build -t hyd-twin-frontend:%BUILD_NUMBER% frontend
+                        '''
                     }
                 }
             }
@@ -113,14 +143,17 @@ pipeline {
 
         stage('Deploy Stack') {
             steps {
-                bat 'docker compose up -d --build'
+                bat '''
+                    "%DOCKER%" compose up -d --build
+                '''
             }
         }
 
         stage('Wait for Health') {
             steps {
                 bat '''
-                    powershell -NoProfile -Command "$ok=$false; for($i=0;$i -lt 30;$i++){ try { $r=Invoke-WebRequest -UseBasicParsing -Uri '%API_URL%/api/health' -TimeoutSec 5; if($r.StatusCode -eq 200){$ok=$true; break} } catch {}; Start-Sleep -Seconds 3 }; if(-not $ok){exit 1}"
+                    powershell -NoProfile -Command ^
+                    "$ok=$false; for($i=0;$i -lt 30;$i++){ try { $r=Invoke-WebRequest -UseBasicParsing -Uri '%API_URL%/api/health' -TimeoutSec 5; if($r.StatusCode -eq 200){$ok=$true; break} } catch {}; Start-Sleep -Seconds 3 }; if(-not $ok){exit 1}"
 
                     curl.exe -fsS %API_URL%/api/domains
                 '''
@@ -159,9 +192,10 @@ pipeline {
         stage('Persistence / Restart') {
             steps {
                 bat '''
-                    docker compose restart backend
+                    "%DOCKER%" compose restart backend
 
-                    powershell -NoProfile -Command "$ok=$false; for($i=0;$i -lt 20;$i++){ try { $r=Invoke-WebRequest -UseBasicParsing -Uri '%API_URL%/api/health' -TimeoutSec 5; if($r.StatusCode -eq 200){$ok=$true; break} } catch {}; Start-Sleep -Seconds 3 }; if(-not $ok){exit 1}"
+                    powershell -NoProfile -Command ^
+                    "$ok=$false; for($i=0;$i -lt 20;$i++){ try { $r=Invoke-WebRequest -UseBasicParsing -Uri '%API_URL%/api/health' -TimeoutSec 5; if($r.StatusCode -eq 200){$ok=$true; break} } catch {}; Start-Sleep -Seconds 3 }; if(-not $ok){exit 1}"
 
                     curl.exe -fsS %API_URL%/api/twins/hospital
                 '''
@@ -189,8 +223,14 @@ pipeline {
         }
 
         failure {
-            bat 'docker compose logs --tail=200'
-            bat 'docker compose down'
+            bat '''
+                "%DOCKER%" compose logs --tail=200 || exit 0
+            '''
+
+            bat '''
+                "%DOCKER%" compose down || exit 0
+            '''
+
             echo 'Pipeline failed - stack torn down'
         }
 
