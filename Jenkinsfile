@@ -6,11 +6,6 @@ pipeline {
     API_URL = 'http://localhost:8001'
   }
 
-  stages {
-    stage('Checkout') {
-      steps { checkout scm }
-    }
-
     stage('Install Dependencies') {
       parallel {
         stage('Python') {
