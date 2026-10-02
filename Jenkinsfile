@@ -1,3 +1,4 @@
+```groovy
 pipeline {
     agent any
 
@@ -10,6 +11,7 @@ pipeline {
         COMPOSE_PROJECT_NAME = 'hyderabad-digital-twin'
         API_URL = 'http://localhost:8001'
 
+        // Explicit Windows paths so Jenkins can find the tools
         PYTHON = 'C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'
         DOCKER = 'C:\\Users\\admin\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin\\docker.exe'
         NODE_HOME = 'C:\\Program Files\\nodejs'
@@ -20,11 +22,38 @@ pipeline {
         stage('Environment Check') {
             steps {
                 bat '''
+                    echo ================================
+                    echo ENVIRONMENT CHECK
+                    echo ================================
+
+                    echo.
+                    echo Python:
                     "%PYTHON%" --version
+
+                    echo.
+                    echo Pip:
+                    "%PYTHON%" -m pip --version
+
+                    echo.
+                    echo Docker:
                     "%DOCKER%" --version
+
+                    echo.
+                    echo Docker Compose:
                     "%DOCKER%" compose version
+
+                    echo.
+                    echo Node:
                     "%NODE_HOME%\\node.exe" --version
+
+                    echo.
+                    echo NPM:
                     "%NODE_HOME%\\npm.cmd" --version
+
+                    echo.
+                    echo ================================
+                    echo ENVIRONMENT CHECK COMPLETE
+                    echo ================================
                 '''
             }
         }
@@ -35,6 +64,7 @@ pipeline {
                 stage('Python') {
                     steps {
                         bat '''
+                            echo Installing Python dependencies...
                             "%PYTHON%" -m pip install -r backend\\requirements.txt
                         '''
                     }
@@ -43,6 +73,8 @@ pipeline {
                 stage('Node') {
                     steps {
                         bat '''
+                            echo Installing Node dependencies...
+                            cd frontend
                             "%NODE_HOME%\\npm.cmd" install
                         '''
                     }
@@ -56,7 +88,10 @@ pipeline {
                 stage('Python lint') {
                     steps {
                         bat '''
-                            "%PYTHON%" -m py_compile backend\\server.py backend\\twins.py backend\\auth.py
+                            "%PYTHON%" -m py_compile ^
+                                backend\\server.py ^
+                                backend\\twins.py ^
+                                backend\\auth.py
                         '''
                     }
                 }
@@ -219,10 +254,17 @@ pipeline {
             archiveArtifacts artifacts: 'frontend/build/**,backend/**/*.py',
                              allowEmptyArchive: true
 
-            echo 'Hyderabad Multi-Domain Digital Twin pipeline passed successfully'
+            echo '=============================================='
+            echo 'HYDERABAD DIGITAL TWIN CI/CD PIPELINE PASSED'
+            echo '=============================================='
         }
 
         failure {
+            echo '=============================================='
+            echo 'PIPELINE FAILED'
+            echo 'Collecting Docker logs...'
+            echo '=============================================='
+
             bat '''
                 "%DOCKER%" compose logs --tail=200 || exit 0
             '''
@@ -240,3 +282,4 @@ pipeline {
         }
     }
 }
+```
