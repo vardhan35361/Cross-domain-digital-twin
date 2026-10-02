@@ -676,7 +676,7 @@ async def assistant_stream(input_data: AssistantRequest, user=Depends(_current_u
 
     async def generator():
         response_text = ""
-        key = os.environ.get("EMERGENT_LLM_KEY")
+        key = os.environ.get("OPENAI_API_KEY")
         domain_contexts = {
             "traffic":    ("Hyderabad traffic command center", metrics()),
             "hospital":   ("hospital command center — beds, ICU, ER queue, ambulances, equipment", _TWIN_KPI_FNS["hospital"](state["domain_store"]["hospital"]) if "hospital" in state["domain_store"] else {}),
@@ -688,27 +688,40 @@ async def assistant_stream(input_data: AssistantRequest, user=Depends(_current_u
         ctx_name, ctx_metrics = domain_contexts.get(domain, domain_contexts["traffic"])
         if key:
             try:
-                from emergentintegrations.llm.chat import LlmChat, StreamDone, TextDelta, UserMessage
-                chat = LlmChat(api_key=key, session_id=f"{domain}-{uuid.uuid4().hex}",
-                               system_message=f"You are AIRA, the calm digital-twin operations assistant for {ctx_name}. Use this live context: "
-                               + str(ctx_metrics) + ". Give concise operational answers with metrics and confidence when relevant.")
-                chat = chat.with_model("openai", "gpt-5.4")
-                stream = chat.stream_message(UserMessage(text=input_data.message))
+                from openai import AsyncOpenAI
+
+                client = AsyncOpenAI(api_key=key)
+
+                system_prompt = (
+                    f"You are AIRA, the calm digital-twin operations assistant for {ctx_name}. "
+                    f"Use this live context: {ctx_metrics}. "
+                    "Give concise operational answers with metrics and confidence when relevant."
+                )
+
+                stream = await client.chat.completions.create(
+                    model="gpt-5.4",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": input_data.message},
+                    ],
+                    stream=True,
+                )
+
                 deadline = asyncio.get_running_loop().time() + 18
-                while asyncio.get_running_loop().time() < deadline:
-                    try:
-                        event = await asyncio.wait_for(stream.__anext__(), timeout=4)
-                    except StopAsyncIteration:
+
+                async for chunk in stream:
+                    if asyncio.get_running_loop().time() >= deadline:
                         break
-                    except asyncio.TimeoutError:
-                        break
-                    if isinstance(event, TextDelta):
-                        response_text += event.content
-                        yield event.content
-                    elif isinstance(event, StreamDone):
-                        break
-                if hasattr(stream, "aclose"):
-                    await stream.aclose()
+
+                    if not chunk.choices:
+                        continue
+
+                    delta = chunk.choices[0].delta.content
+
+                    if delta:
+                        response_text += delta
+                        yield delta
+
             except Exception as exc:
                 logger.warning("LLM stream unavailable: %s", exc)
         if not response_text:
