@@ -12,6 +12,7 @@ pipeline {
 
         PYTHON = 'C:\\Users\\admin\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'
         DOCKER = 'C:\\Users\\admin\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin\\docker.exe'
+        COMPOSE = 'C:\\Users\\admin\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin\\docker-compose.exe'
         NODE = 'C:\\Program Files\\nodejs\\node.exe'
         NPM = 'C:\\Program Files\\nodejs\\npm.cmd'
     }
@@ -26,10 +27,19 @@ pipeline {
                     echo ==============================
 
                     "%PYTHON%" --version
+                    if errorlevel 1 exit /b 1
+
                     "%DOCKER%" --version
-                    "%DOCKER%" compose version
+                    if errorlevel 1 exit /b 1
+
+                    "%COMPOSE%" version
+                    if errorlevel 1 exit /b 1
+
                     "%NODE%" --version
+                    if errorlevel 1 exit /b 1
+
                     "%NPM%" --version
+                    if errorlevel 1 exit /b 1
 
                     echo ==============================
                     echo ENVIRONMENT OK
@@ -45,6 +55,7 @@ pipeline {
                     steps {
                         bat '''
                             "%PYTHON%" -m pip install -r backend\\requirements.txt
+                            if errorlevel 1 exit /b 1
                         '''
                     }
                 }
@@ -52,9 +63,9 @@ pipeline {
                 stage('Node') {
                     steps {
                         bat '''
-                            "%NPM%" install
                             cd frontend
-                            "%NPM%" install
+                            "%NPM%" install --legacy-peer-deps
+                            if errorlevel 1 exit /b 1
                         '''
                     }
                 }
@@ -68,6 +79,7 @@ pipeline {
                     steps {
                         bat '''
                             "%PYTHON%" -m py_compile backend\\server.py backend\\twins.py backend\\auth.py
+                            if errorlevel 1 exit /b 1
                         '''
                     }
                 }
@@ -76,6 +88,7 @@ pipeline {
                     steps {
                         bat '''
                             "%PYTHON%" -m compileall -q backend
+                            if errorlevel 1 exit /b 1
                         '''
                     }
                 }
@@ -86,6 +99,7 @@ pipeline {
             steps {
                 bat '''
                     "%PYTHON%" -m pytest -q tests
+                    if errorlevel 1 exit /b 1
                 '''
             }
         }
@@ -94,6 +108,7 @@ pipeline {
             steps {
                 bat '''
                     "%PYTHON%" backend\\tests\\domain_simulation_test.py
+                    if errorlevel 1 exit /b 1
                 '''
             }
         }
@@ -102,6 +117,7 @@ pipeline {
             steps {
                 bat '''
                     "%PYTHON%" backend\\tests\\operator_action_test.py
+                    if errorlevel 1 exit /b 1
                 '''
             }
         }
@@ -110,6 +126,7 @@ pipeline {
             steps {
                 bat '''
                     "%PYTHON%" backend\\tests\\websocket_replay_test.py
+                    if errorlevel 1 exit /b 1
                 '''
             }
         }
@@ -119,6 +136,7 @@ pipeline {
                 bat '''
                     cd frontend
                     "%NPM%" run build
+                    if errorlevel 1 exit /b 1
                 '''
             }
         }
@@ -126,7 +144,8 @@ pipeline {
         stage('Docker Compose Validation') {
             steps {
                 bat '''
-                    "%DOCKER%" compose config -q
+                    "%COMPOSE%" config -q
+                    if errorlevel 1 exit /b 1
                 '''
             }
         }
@@ -138,6 +157,7 @@ pipeline {
                     steps {
                         bat '''
                             "%DOCKER%" build -t hyd-twin-backend:%BUILD_NUMBER% backend
+                            if errorlevel 1 exit /b 1
                         '''
                     }
                 }
@@ -146,6 +166,7 @@ pipeline {
                     steps {
                         bat '''
                             "%DOCKER%" build -t hyd-twin-frontend:%BUILD_NUMBER% frontend
+                            if errorlevel 1 exit /b 1
                         '''
                     }
                 }
@@ -155,7 +176,8 @@ pipeline {
         stage('Deploy Stack') {
             steps {
                 bat '''
-                    "%DOCKER%" compose up -d --build
+                    "%COMPOSE%" up -d --build
+                    if errorlevel 1 exit /b 1
                 '''
             }
         }
@@ -166,7 +188,10 @@ pipeline {
                     powershell -NoProfile -Command ^
                     "$ok=$false; for($i=0;$i -lt 30;$i++){ try { $r=Invoke-WebRequest -UseBasicParsing -Uri '%API_URL%/api/health' -TimeoutSec 5; if($r.StatusCode -eq 200){$ok=$true; break} } catch {}; Start-Sleep -Seconds 3 }; if(-not $ok){exit 1}"
 
+                    if errorlevel 1 exit /b 1
+
                     curl.exe -fsS %API_URL%/api/domains
+                    if errorlevel 1 exit /b 1
                 '''
             }
         }
@@ -175,17 +200,37 @@ pipeline {
             steps {
                 bat '''
                     curl.exe -fsS %API_URL%/api/twins/traffic > NUL
+                    if errorlevel 1 exit /b 1
+
                     curl.exe -fsS %API_URL%/api/twins/hospital > NUL
+                    if errorlevel 1 exit /b 1
+
                     curl.exe -fsS %API_URL%/api/twins/building > NUL
+                    if errorlevel 1 exit /b 1
+
                     curl.exe -fsS %API_URL%/api/twins/industrial > NUL
+                    if errorlevel 1 exit /b 1
+
                     curl.exe -fsS %API_URL%/api/twins/energy > NUL
+                    if errorlevel 1 exit /b 1
+
                     curl.exe -fsS %API_URL%/api/twins/water > NUL
+                    if errorlevel 1 exit /b 1
 
                     curl.exe -fsS "%API_URL%/api/twins/hospital/history?minutes=1" > NUL
+                    if errorlevel 1 exit /b 1
+
                     curl.exe -fsS "%API_URL%/api/twins/building/history?minutes=1" > NUL
+                    if errorlevel 1 exit /b 1
+
                     curl.exe -fsS "%API_URL%/api/twins/industrial/history?minutes=1" > NUL
+                    if errorlevel 1 exit /b 1
+
                     curl.exe -fsS "%API_URL%/api/twins/energy/history?minutes=1" > NUL
+                    if errorlevel 1 exit /b 1
+
                     curl.exe -fsS "%API_URL%/api/twins/water/history?minutes=1" > NUL
+                    if errorlevel 1 exit /b 1
                 '''
             }
         }
@@ -194,8 +239,13 @@ pipeline {
             steps {
                 bat '''
                     curl.exe -fsS http://localhost:9090/-/ready
+                    if errorlevel 1 exit /b 1
+
                     curl.exe -fsS http://admin:hyderabad2026@localhost:3001/api/health
+                    if errorlevel 1 exit /b 1
+
                     curl.exe -fsS "http://admin:hyderabad2026@localhost:3001/api/search?type=dash-db"
+                    if errorlevel 1 exit /b 1
                 '''
             }
         }
@@ -203,12 +253,16 @@ pipeline {
         stage('Persistence / Restart') {
             steps {
                 bat '''
-                    "%DOCKER%" compose restart backend
+                    "%COMPOSE%" restart backend
+                    if errorlevel 1 exit /b 1
 
                     powershell -NoProfile -Command ^
-                    "$ok=$false; for($i=0;$i -lt 20;$i++){ try { $r=Invoke-WebRequest -UseBasicParsing -Uri '%API_URL%/api/health' -TimeoutSec 5; if($r.StatusCode -eq 200){$ok=$true; break} } catch {}; Start-Sleep -Seconds 3 }; if(-not $ok){exit 1}"
+                    "$ok=$false; for($i=0;$i-lt 20;$i++){ try { $r=Invoke-WebRequest -UseBasicParsing -Uri '%API_URL%/api/health' -TimeoutSec 5; if($r.StatusCode -eq 200){$ok=$true; break} } catch {}; Start-Sleep -Seconds 3 }; if(-not $ok){exit 1}"
+
+                    if errorlevel 1 exit /b 1
 
                     curl.exe -fsS %API_URL%/api/twins/hospital
+                    if errorlevel 1 exit /b 1
                 '''
             }
         }
@@ -217,8 +271,13 @@ pipeline {
             steps {
                 bat '''
                     curl.exe -fsS %API_URL%/api/overview > NUL
+                    if errorlevel 1 exit /b 1
+
                     curl.exe -fsS %API_URL%/api/predictions > NUL
+                    if errorlevel 1 exit /b 1
+
                     curl.exe -fsS %API_URL%/api/metrics
+                    if errorlevel 1 exit /b 1
                 '''
             }
         }
@@ -237,11 +296,11 @@ pipeline {
 
         failure {
             bat '''
-                "%DOCKER%" compose logs || exit 0
+                "%COMPOSE%" logs --tail=200 || exit /b 0
             '''
 
             bat '''
-                "%DOCKER%" compose down
+                "%COMPOSE%" down || exit /b 0
             '''
 
             echo 'Pipeline failed - stack torn down'
