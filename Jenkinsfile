@@ -237,7 +237,7 @@ pipeline {
 
         failure {
             bat '''
-                "%DOCKER%" compose logs --tail=200
+                "%DOCKER%" compose logs || exit 0
             '''
 
             bat '''
